@@ -15,6 +15,7 @@ import pandas as pd
 
 from trading_bot.backtest.config import BacktestConfig
 from trading_bot.backtest.engine import BacktestResult, buy_and_hold_equity
+from trading_bot.data import schema
 
 SECONDS_PER_YEAR = 365.25 * 24 * 3600
 
@@ -41,6 +42,11 @@ class Metrics:
     start: pd.Timestamp
     end: pd.Timestamp
     skipped_orders: int
+
+    # Equity is marked to market, so a position still open at the end has not
+    # paid its exit cost yet. Surfaced rather than silently ignored.
+    ends_with_open_position: bool = False
+    unpaid_exit_cost: float = 0.0
 
     @property
     def beats_buy_and_hold(self) -> bool:
@@ -113,6 +119,13 @@ def compute_metrics(result: BacktestResult, config: BacktestConfig | None = None
         start=start_ts,
         end=end_ts,
         skipped_orders=result.skipped_orders,
+        ends_with_open_position=not result.ends_flat,
+        unpaid_exit_cost=(
+            0.0
+            if result.ends_flat
+            else result.open_units * float(result.candles[schema.CLOSE].iloc[-1])
+            * (config.fee_rate + config.slippage_rate)
+        ),
     )
 
 

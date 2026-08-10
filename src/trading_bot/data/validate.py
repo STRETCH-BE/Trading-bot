@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from trading_bot.data import schema
+from trading_bot.data.data_quality_only import zero_volume_in_active_period
 from trading_bot.data.store import ParquetStore
 
 _MAX_EXAMPLES = 5  # cap listed examples per issue so reports stay readable
@@ -153,7 +154,7 @@ def validate_frame(
             )
         )
 
-    zero_active = _zero_volume_in_active_period(
+    zero_active = zero_volume_in_active_period(
         clean, window=active_window, min_active_fraction=min_active_fraction
     )
     zero_total = int((clean[schema.VOLUME] == 0).sum())
@@ -179,25 +180,6 @@ def validate_frame(
         "zero_volume_active_rows": len(zero_active),
     }
     return report
-
-
-def _zero_volume_in_active_period(
-    clean: pd.DataFrame, *, window: int, min_active_fraction: float
-) -> list[pd.Timestamp]:
-    """Timestamps of zero-volume candles with active trading on both sides."""
-    volume = clean[schema.VOLUME].reset_index(drop=True)
-    ts = clean[schema.TIMESTAMP].reset_index(drop=True)
-    nonzero = (volume > 0).astype("float64")
-
-    # Fraction of the up-to-`window` candles strictly before / after each row
-    # that traded. Rows at the edges see partial windows (min_periods=1); the
-    # first row has no "before" and the last no "after", so neither can be
-    # "in the middle" and both stay unflagged via fillna(False).
-    before = nonzero.shift(1).rolling(window, min_periods=1).mean()
-    after = nonzero.iloc[::-1].shift(1).rolling(window, min_periods=1).mean().iloc[::-1]
-
-    flagged = (volume == 0) & (before >= min_active_fraction) & (after >= min_active_fraction)
-    return list(ts[flagged.fillna(False)])
 
 
 def validate_store(

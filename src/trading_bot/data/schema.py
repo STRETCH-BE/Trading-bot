@@ -71,10 +71,16 @@ class Timeframe:
 
 @dataclass(frozen=True)
 class Pair:
-    """A supported trading pair."""
+    """A supported trading pair.
+
+    ``ordermin`` is the exchange's minimum order size in BASE units. It is a
+    per-pair property — Kraken sets a different floor for every asset — so it
+    lives here next to the pair rather than as one global setting.
+    """
 
     kraken_name: str  # name used in Kraken dump files ("XBTEUR")
     ccxt_symbol: str  # unified ccxt symbol ("BTC/EUR")
+    ordermin: float  # minimum order size, base units
 
 
 TIMEFRAMES: dict[str, Timeframe] = {
@@ -82,7 +88,43 @@ TIMEFRAMES: dict[str, Timeframe] = {
     "1d": Timeframe(name="1d", minutes=1440, ccxt_code="1d"),
 }
 
+# ordermin values: Kraken's published minimum order sizes
+# (https://support.kraken.com/articles/205893708 "Minimum order size ...").
+#
+# NOT verified against the live API in this environment — api.kraken.com is
+# unreachable behind the sandbox proxy. Kraken revises these, so treat them as
+# a starting point and re-check before trading real money. The authoritative
+# runtime source is ccxt's `exchange.load_markets()[symbol]["limits"]["amount"]
+# ["min"]`, which mirrors Kraken's AssetPairs `ordermin` field; wire that in
+# during Stage 6 and assert it matches these constants at startup.
 PAIRS: dict[str, Pair] = {
-    "XBTEUR": Pair(kraken_name="XBTEUR", ccxt_symbol="BTC/EUR"),
-    "ETHEUR": Pair(kraken_name="ETHEUR", ccxt_symbol="ETH/EUR"),
+    "XBTEUR": Pair(kraken_name="XBTEUR", ccxt_symbol="BTC/EUR", ordermin=0.0001),
+    "ETHEUR": Pair(kraken_name="ETHEUR", ccxt_symbol="ETH/EUR", ordermin=0.01),
 }
+
+
+class UnknownPairError(KeyError):
+    """A pair with no registered ordermin. Never silently defaulted."""
+
+
+def min_order_units(pair: Pair | str) -> float:
+    """Exchange minimum order size for ``pair``, in base units.
+
+    Raises ``UnknownPairError`` for an unregistered pair. Guessing a minimum
+    means the backtest fills orders a real exchange would reject, so there is
+    deliberately no fallback.
+    """
+    if isinstance(pair, Pair):
+        if pair.kraken_name not in PAIRS:
+            raise UnknownPairError(
+                f"pair {pair.kraken_name!r} is not in the registry; add it to "
+                f"PAIRS with its Kraken ordermin"
+            )
+        return pair.ordermin
+    try:
+        return PAIRS[pair].ordermin
+    except KeyError:
+        raise UnknownPairError(
+            f"no registered ordermin for pair {pair!r}; known pairs: "
+            f"{sorted(PAIRS)}. Add it to PAIRS rather than assuming a default."
+        ) from None

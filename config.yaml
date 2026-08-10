@@ -15,9 +15,10 @@ backtest:
   # Fills happen at the next candle's open, i.e. marketable -> taker.
   fee_mode: taker
   slippage_bps: 5.0
-  # Kraken ordermin for XBT pairs, in base units.
-  min_order_units: 0.0001
   risk_free_rate: 0.0
+  # NOTE: min_order_units is deliberately NOT set here. Exchange minimums are
+  # per-pair and live in trading_bot.data.schema.PAIRS[...].ordermin. Setting
+  # it here would override every pair with one global value.
 
 strategies:
   donchian:

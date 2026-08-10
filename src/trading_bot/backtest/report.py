@@ -51,6 +51,16 @@ def format_report(metrics: Metrics, title: str = "BACKTEST REPORT") -> str:
         "",
         _row("total fees paid", f"{metrics.total_fees:,.2f}"),
         _row("fees as % of capital", _magnitude(metrics.fees_pct_of_capital)),
+    ]
+
+    if metrics.ends_with_open_position:
+        lines += [
+            "",
+            _row("position still open at end", "YES — marked to market"),
+            _row("exit cost not yet paid", f"{metrics.unpaid_exit_cost:,.2f}"),
+        ]
+
+    lines += [
         "",
         "-" * _WIDTH,
         "BENCHMARK (mandatory)",

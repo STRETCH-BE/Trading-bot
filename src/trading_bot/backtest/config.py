@@ -27,9 +27,11 @@ class BacktestConfig:
 
     slippage_bps: float = 5.0
 
-    # Kraken's ordermin for XBT. Orders smaller than this are skipped, not
-    # submitted-and-rejected.
-    min_order_units: float = 0.0001
+    # Exchange minimum order size is a PER-PAIR property and normally comes
+    # from schema.min_order_units(pair). This is an explicit override for
+    # tests and what-if runs only; leaving it None is the correct production
+    # setting, and backtest() then requires a pair so nothing is guessed.
+    min_order_units: float | None = None
 
     # Annualisation factor for Sharpe/Sortino/CAGR. None -> inferred from the
     # median candle spacing (crypto trades every day, so 365 for daily).

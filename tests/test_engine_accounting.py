@@ -34,10 +34,171 @@ def test_always_hold_equals_buy_and_hold_to_within_a_cent():
 
     assert result.final_equity == pytest.approx(float(bh.iloc[-1]), abs=0.01)
 
-    # and it really did pay exactly one round trip
-    assert len(result.trades) == 1
+    # It bought once and never sold, so there is no CLOSED trade — the position
+    # is held open and marked to market, exactly like the benchmark.
+    assert result.trades == []
+    assert not result.ends_flat
+    assert len(result.fills) == 1 and result.fills[0].side == "buy"
     metrics = compute_metrics(result, CONFIG)
     assert metrics.excess_return == pytest.approx(0.0, abs=1e-6)
+    assert metrics.ends_with_open_position
+    assert metrics.unpaid_exit_cost > 0
+
+
+# --- finding 7: no synthetic end-of-run liquidation --------------------------
+
+
+def test_flat_market_always_long_reports_no_risk_when_costless():
+    """The headline check: no synthetic exit tick may appear in the metrics.
+
+    Zero fees and zero slippage on a flat market means nothing whatsoever
+    happens after the entry, so Sharpe and drawdown must be exactly zero. The
+    old forced liquidation injected a closing fee tick and reported
+    Sharpe -1.57 / max DD 0.62% here.
+    """
+    candles = flat_candles(300, price=100.0)
+    config = BacktestConfig(
+        starting_capital=10_000.0,
+        maker_fee_bps=0.0,
+        taker_fee_bps=0.0,
+        slippage_bps=0.0,
+        min_order_units=0.0,
+    )
+    result = backtest(candles, lambda c: pd.Series([1.0] * len(c)), config)
+    metrics = compute_metrics(result, config)
+
+    assert metrics.sharpe == 0.0
+    assert metrics.max_drawdown == 0.0
+    assert metrics.total_return == pytest.approx(0.0, abs=1e-12)
+    assert not any(f.forced for f in result.fills)
+
+
+def test_flat_market_drawdown_is_entry_cost_only_not_double():
+    """With real costs, only the entry is charged — the unpaid exit is reported.
+
+    The strategy chose to buy, so that cost is real. It never chose to sell,
+    so no exit cost may appear in the equity curve.
+    """
+    candles = flat_candles(300, price=100.0)
+    config = BacktestConfig(starting_capital=10_000.0, min_order_units=0.0)
+    result = backtest(candles, lambda c: pd.Series([1.0] * len(c)), config)
+    metrics = compute_metrics(result, config)
+
+    entry_cost = 1 - 1 / ((1 + config.fee_rate) * (1 + config.slippage_rate))
+    assert metrics.max_drawdown == pytest.approx(entry_cost, rel=1e-6)
+
+    # exactly one non-zero return in the whole series: the entry
+    rets = result.equity.pct_change().dropna()
+    assert int((rets != 0).sum()) == 1
+
+    # the exit cost is disclosed, not buried
+    assert metrics.ends_with_open_position
+    assert metrics.unpaid_exit_cost > 0
+
+
+def test_open_position_is_marked_to_market_not_closed():
+    candles = _rising_market(100)
+    result = backtest(candles, lambda c: pd.Series([1.0] * len(c)), CONFIG)
+    last_close = float(candles[schema.CLOSE].iloc[-1])
+    assert result.open_units > 0
+    assert result.final_equity == pytest.approx(result.open_units * last_close, rel=1e-9)
+
+
+# --- finding 1: partial-sell accounting + the reconciliation invariant --------
+
+
+@pytest.mark.parametrize(
+    "label, signal_values",
+    [
+        ("binary", [1.0 if (i // 10) % 2 == 0 else 0.0 for i in range(120)]),
+        ("fractional", [1.0 if (i // 10) % 2 == 0 else 0.5 for i in range(120)]),
+        ("fractional_ladder", [min(1.0, (i % 25) / 20) for i in range(120)]),
+        ("all_in_all_out", [float(i % 2) for i in range(120)]),
+    ],
+)
+def test_pnl_reconciles_to_equity_change(label, signal_values):
+    """sum(closed pnl) + unrealised == final equity - starting capital.
+
+    This is the invariant that the old partial-sell bug violated by 34,702 on
+    a 10,000 account, because a partial sell retired no cost basis.
+    """
+    candles = _rising_market(120)
+    result = backtest(candles, lambda c: pd.Series(signal_values), CONFIG)
+
+    accounted = result.realized_pnl + result.unrealized_pnl
+    actual = result.final_equity - CONFIG.starting_capital
+    assert accounted == pytest.approx(actual, abs=0.01), (
+        f"[{label}] books do not reconcile: "
+        f"realised {result.realized_pnl:.2f} + unrealised {result.unrealized_pnl:.2f} "
+        f"!= equity change {actual:.2f}"
+    )
+
+
+def test_flat_ending_strategy_reconciles_with_no_unrealised():
+    candles = _rising_market(120)
+    signals = [1.0 if (i // 10) % 2 == 0 else 0.0 for i in range(120)]
+    signals[-1] = 0.0
+    result = backtest(candles, lambda c: pd.Series(signals), CONFIG)
+    assert result.ends_flat
+    assert result.unrealized_pnl == 0.0
+    assert result.realized_pnl == pytest.approx(
+        result.final_equity - CONFIG.starting_capital, abs=0.01
+    )
+
+
+def test_partial_sell_emits_trades_within_the_real_traded_range():
+    """The direct regression: the old bug reported entry_price 850 on an asset
+    that never traded above 135, because a partial sell retired no cost basis.
+
+    Trade COUNT is deliberately not asserted — a fractional target rebalances
+    on every candle as the price moves, so many small closes are correct.
+    """
+    candles = _rising_market(60)
+    signals = [1.0] * 20 + [0.5] * 20 + [0.0] * 20
+    result = backtest(candles, lambda c: pd.Series(signals), CONFIG)
+
+    assert result.trades, "a partial sell must close a proportional slice"
+
+    lo = float(candles[schema.LOW].min())
+    hi = float(candles[schema.HIGH].max())
+    for t in result.trades:
+        assert lo <= t.entry_price <= hi, (
+            f"entry price {t.entry_price:.2f} outside the traded range "
+            f"[{lo:.2f}, {hi:.2f}] — cost basis was not retired proportionally"
+        )
+
+    # every unit bought is eventually accounted for by a closed slice
+    bought = sum(f.units for f in result.fills if f.side == "buy")
+    closed = sum(t.units for t in result.trades)
+    assert closed == pytest.approx(bought, rel=1e-9)
+
+
+def test_partial_sell_leaves_correct_basis_for_the_remainder():
+    """On a flat market every slice must report the SAME entry price.
+
+    If a partial sell failed to retire its share of the basis, later slices
+    would inherit it and report inflated entry prices.
+    """
+    candles = flat_candles(40, price=100.0)
+    signals = [1.0] * 10 + [0.5] * 10 + [0.0] * 20
+    result = backtest(candles, lambda c: pd.Series(signals), CONFIG)
+
+    assert len(result.trades) >= 2
+    first = result.trades[0].entry_price
+    for t in result.trades:
+        assert t.entry_price == pytest.approx(first, rel=1e-9)
+
+
+def test_regression_probe1_fractional_books_reconcile():
+    """Locks the exact scenario from the audit probe that was off by 34,702."""
+    candles = _rising_market(120)
+    signals = [1.0 if (i // 10) % 2 == 0 else 0.5 for i in range(120)]
+    result = backtest(candles, lambda c: pd.Series(signals), CONFIG)
+
+    drift = (result.realized_pnl + result.unrealized_pnl) - (
+        result.final_equity - CONFIG.starting_capital
+    )
+    assert abs(drift) < 0.01, f"books drifted by {drift:,.2f}"
 
 
 # --- mandated test 2 ---------------------------------------------------------
