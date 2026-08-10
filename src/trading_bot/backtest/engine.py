@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from trading_bot.backtest.config import BacktestConfig
+from trading_bot.backtest.holdout import HoldoutUnlock, HoldoutViolation
 from trading_bot.data import schema
 
 SignalFn = Callable[[pd.DataFrame], pd.Series]
@@ -88,7 +89,9 @@ class BacktestResult:
     fills: list[Fill]
     config: BacktestConfig
     candles: pd.DataFrame = field(repr=False)
-    skipped_orders: int = 0  # orders below the exchange minimum
+    skipped_orders: int = 0  # orders below an exchange minimum (ordermin OR costmin)
+    skipped_costmin: int = 0  # subset of skipped_orders: passed ordermin, failed costmin
+    suppressed_rebalances: int = 0  # target moves inside the min_rebalance_delta dead-band
     open_units: float = 0.0  # still held at the end, marked to market
     unrealized_pnl: float = 0.0  # P&L of that open position, not yet realised
 
@@ -114,18 +117,36 @@ def backtest(
     signal_fn: SignalFn,
     config: BacktestConfig | None = None,
     pair: schema.Pair | str | None = None,
+    *,
+    holdout_unlock: HoldoutUnlock | None = None,
 ) -> BacktestResult:
     """Run ``signal_fn`` over ``candles`` under ``config``.
 
     ``signal_fn`` must be pure: same candles in, same signals out, no I/O.
 
-    ``pair`` supplies the exchange minimum order size, which differs per pair.
-    It may be omitted only when ``config.min_order_units`` is set explicitly;
-    otherwise the run fails rather than guessing a minimum.
+    ``pair`` supplies the exchange minimums (ordermin and costmin), which
+    differ per pair. It may be omitted only when ``config.min_order_units``
+    is set explicitly; otherwise the run fails rather than guessing.
+
+    Candles on/after ``config.holdout_start`` raise ``HoldoutViolation``
+    unless a one-shot ``holdout_unlock`` token is supplied.
     """
     config = config or BacktestConfig()
-    min_units = _resolve_min_order_units(config, pair)
+    min_units, cost_min = _resolve_order_limits(config, pair)
     candles = _validate_candles(candles)
+
+    last_ts = candles[schema.TIMESTAMP].iloc[-1]
+    if last_ts >= config.holdout_ts:
+        if holdout_unlock is None:
+            raise HoldoutViolation(
+                f"candles reach {last_ts:%Y-%m-%d %H:%M} — on/after the holdout "
+                f"boundary {config.holdout_ts:%Y-%m-%d}. The holdout exists so "
+                f"one untouched period survives development. Trim the candles, "
+                f"or pass an explicitly minted --unlock-holdout token."
+            )
+        holdout_unlock.consume(
+            context=f"backtest over candles ending {last_ts:%Y-%m-%d %H:%M}"
+        )
     signals = _validate_signals(signal_fn(candles), candles)
     targets = _target_positions(signals)
 
@@ -142,6 +163,8 @@ def backtest(
     trades: list[Trade] = []
     equity_curve: list[float] = []
     skipped = 0
+    skipped_costmin = 0
+    suppressed = 0
 
     # Open-position bookkeeping for the trade log, on a weighted-average basis.
     # `open_units` must be tracked explicitly: without it a partial sell cannot
@@ -161,7 +184,22 @@ def backtest(
         current_notional = units * open_px
         delta_notional = desired_notional - current_notional
 
-        if abs(delta_notional) > _EPS:
+        # Dead-band: a target move smaller than min_rebalance_delta is noise
+        # (fee drift, fractional-target chatter), not a decision. A full exit
+        # (target 0 while holding) is exempt — going flat is always a real
+        # decision, however small the residual.
+        current_frac = current_notional / equity_at_open if equity_at_open > _EPS else 0.0
+        full_exit = target <= 0.0 and units > _EPS
+        wants_trade = abs(delta_notional) > _EPS
+        if (
+            wants_trade
+            and not full_exit
+            and abs(target - current_frac) < config.min_rebalance_delta
+        ):
+            suppressed += 1
+            wants_trade = False
+
+        if wants_trade:
             side = "buy" if delta_notional > 0 else "sell"
             fill_px = open_px * (1 + slip) if side == "buy" else open_px * (1 - slip)
 
@@ -176,6 +214,9 @@ def backtest(
 
             if order_units < min_units:
                 skipped += 1  # below the exchange's ordermin — never submitted
+            elif notional < cost_min:
+                skipped += 1  # passes ordermin but fails the quote-value costmin
+                skipped_costmin += 1
             else:
                 fee = notional * fee_rate
                 if side == "buy":
@@ -251,6 +292,8 @@ def backtest(
         config=config,
         candles=candles,
         skipped_orders=skipped,
+        skipped_costmin=skipped_costmin,
+        suppressed_rebalances=suppressed,
         open_units=units,
         unrealized_pnl=unrealized,
     )
@@ -297,12 +340,16 @@ def round_trip_cost(config: BacktestConfig) -> float:
     return 1.0 - (1 - slip) * (1 - fee) / ((1 + slip) * (1 + fee))
 
 
-def _resolve_min_order_units(
+def _resolve_order_limits(
     config: BacktestConfig, pair: schema.Pair | str | None
-) -> float:
-    """Per-pair exchange minimum, or the explicit override. Never a guess."""
+) -> tuple[float, float]:
+    """(ordermin units, costmin quote value) — per pair, or explicit overrides.
+
+    Never a guess: without a pair, an explicit ``min_order_units`` override is
+    required, and costmin then defaults to the override or 0 (test mode).
+    """
     if config.min_order_units is not None:
-        return config.min_order_units
+        return config.min_order_units, (config.costmin if config.costmin is not None else 0.0)
     if pair is None:
         raise ValueError(
             "backtest() needs a `pair` to look up the exchange minimum order "
@@ -310,7 +357,8 @@ def _resolve_min_order_units(
             "assume a default: the wrong ordermin fills orders the exchange "
             "would reject."
         )
-    return schema.min_order_units(pair)
+    cost_min = config.costmin if config.costmin is not None else schema.cost_minimum(pair)
+    return schema.min_order_units(pair), cost_min
 
 
 def _validate_candles(candles: pd.DataFrame) -> pd.DataFrame:

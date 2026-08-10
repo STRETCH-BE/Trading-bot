@@ -16,7 +16,12 @@ from trading_bot.data import schema
 
 from .synthetic import flat_candles, from_closes, make_candles
 
-CONFIG = BacktestConfig(starting_capital=10_000.0, min_order_units=0.0)
+# These tests exercise raw fill accounting; the rebalance dead-band is a
+# separate feature with its own tests (test_rebalance_and_costmin.py), so it
+# is disabled here to keep every fractional rebalance observable.
+CONFIG = BacktestConfig(
+    starting_capital=10_000.0, min_order_units=0.0, min_rebalance_delta=0.0
+)
 
 
 def _rising_market(n: int = 200) -> pd.DataFrame:

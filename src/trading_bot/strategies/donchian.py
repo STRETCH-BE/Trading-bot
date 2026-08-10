@@ -79,28 +79,80 @@ def donchian_breakout(
              or close < lowest low of the previous ``exit_lookback`` candles
     """
     params = params or DonchianParams()
+    return donchian_breakout_schedule(candles, [ParamSpan(0, params)])
+
+
+@dataclass(frozen=True)
+class ParamSpan:
+    """``params`` are in force for candles at index >= ``start`` (until the
+    next span begins). Data, not state — the schedule keeps the function pure."""
+
+    start: int
+    params: DonchianParams
+
+
+def donchian_breakout_schedule(
+    candles: pd.DataFrame,
+    spans: list[ParamSpan],
+    *,
+    trade_start: int = 0,
+) -> pd.Series:
+    """Donchian breakout with parameters that swap at fixed candle indexes.
+
+    This is THE walk-forward continuity mechanism: one state machine runs over
+    the whole series; at a span boundary only the parameters change — the
+    position flag and the trailing-stop anchor carry straight across. No
+    forced close, no forced re-entry.
+
+    Candles before ``trade_start`` emit 0.0 and the state machine does not run
+    there (used to pin the true start of an out-of-sample period). Still a
+    pure function of (candles, spans, trade_start).
+    """
     _validate(candles)
+    if not spans:
+        raise ValueError("empty parameter schedule")
+    spans = sorted(spans, key=lambda s: s.start)
+    if spans[0].start > trade_start:
+        raise ValueError(
+            f"first span starts at {spans[0].start} but trading starts at "
+            f"{trade_start}; every traded candle needs parameters in force"
+        )
 
     df = candles.reset_index(drop=True)
     high = df[schema.HIGH].astype(float)
     low = df[schema.LOW].astype(float)
     close = df[schema.CLOSE].astype(float)
-
-    # `.shift(1)` is what excludes the current candle from its own lookback.
-    entry_band = high.rolling(params.entry_lookback).max().shift(1).to_numpy()
-    exit_band = low.rolling(params.exit_lookback).min().shift(1).to_numpy()
-    atr = _wilder_atr(high, low, close, params.atr_period).to_numpy()
     close_arr = close.to_numpy()
-
     n = len(df)
-    signals = np.zeros(n, dtype=float)
-    warmup = params.warmup
 
+    # Per unique params: bands built with `.shift(1)` so the lookback excludes
+    # the current candle. Cached — walk-forward reselects the same params often.
+    bands: dict[DonchianParams, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    for span in spans:
+        p = span.params
+        if p not in bands:
+            bands[p] = (
+                high.rolling(p.entry_lookback).max().shift(1).to_numpy(),
+                low.rolling(p.exit_lookback).min().shift(1).to_numpy(),
+                _wilder_atr(high, low, close, p.atr_period).to_numpy(),
+            )
+
+    signals = np.zeros(n, dtype=float)
     in_position = False
     highest_close = 0.0
+    span_idx = 0
+    while span_idx + 1 < len(spans) and spans[span_idx + 1].start <= trade_start:
+        span_idx += 1
 
-    for i in range(n):
-        if i < warmup:
+    for i in range(max(trade_start, 0), n):
+        # advance the schedule; ONLY the parameters change here, never
+        # in_position / highest_close
+        while span_idx + 1 < len(spans) and spans[span_idx + 1].start <= i:
+            span_idx += 1
+        params = spans[span_idx].params
+        entry_band, exit_band, atr = bands[params]
+
+        if i < params.warmup:
             continue  # stays FLAT; never NaN, never a spurious entry
 
         px = close_arr[i]

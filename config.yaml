@@ -16,9 +16,14 @@ backtest:
   fee_mode: taker
   slippage_bps: 5.0
   risk_free_rate: 0.0
-  # NOTE: min_order_units is deliberately NOT set here. Exchange minimums are
-  # per-pair and live in trading_bot.data.schema.PAIRS[...].ordermin. Setting
-  # it here would override every pair with one global value.
+  # Target-position changes below this are no-ops (fee-drift chatter guard).
+  min_rebalance_delta: 0.05
+  # Candles on/after this date are HOLDOUT — backtest() raises on them.
+  holdout_start: "2026-01-01"
+  # NOTE: min_order_units / costmin are deliberately NOT set here. Exchange
+  # minimums are per-pair and live in trading_bot.data.schema.PAIRS[...]
+  # (ordermin, costmin). Setting them here would override every pair with one
+  # global value.
 
 strategies:
   donchian:

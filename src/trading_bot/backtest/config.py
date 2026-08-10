@@ -6,6 +6,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import yaml
 
 DEFAULT_CONFIG_PATH = Path("config.yaml")
@@ -33,6 +34,20 @@ class BacktestConfig:
     # setting, and backtest() then requires a pair so nothing is guessed.
     min_order_units: float | None = None
 
+    # Kraken cost minimum (minimum order VALUE in quote currency). Per-pair
+    # via schema.cost_minimum(pair); this is a test/what-if override only.
+    costmin: float | None = None
+
+    # Rebalance dead-band: a target-position change smaller than this is a
+    # no-op. Kills fee-drift chatter on fractional targets; full exits
+    # (target 0 while holding) are exempt.
+    min_rebalance_delta: float = 0.05
+
+    # Candles on/after this date are HOLDOUT: backtest() raises rather than
+    # touch them, unless handed a one-shot HoldoutUnlock minted by an
+    # explicit --unlock-holdout flag.
+    holdout_start: str = "2026-01-01"
+
     # Annualisation factor for Sharpe/Sortino/CAGR. None -> inferred from the
     # median candle spacing (crypto trades every day, so 365 for daily).
     periods_per_year: float | None = None
@@ -46,6 +61,18 @@ class BacktestConfig:
         for name in ("maker_fee_bps", "taker_fee_bps", "slippage_bps"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
+        if not 0.0 <= self.min_rebalance_delta < 1.0:
+            raise ValueError(
+                f"min_rebalance_delta must be in [0, 1), got {self.min_rebalance_delta!r}"
+            )
+        if self.costmin is not None and self.costmin < 0:
+            raise ValueError("costmin must not be negative")
+        _ = self.holdout_ts  # fail fast on an unparseable holdout_start
+
+    @property
+    def holdout_ts(self) -> pd.Timestamp:
+        ts = pd.Timestamp(self.holdout_start)
+        return ts.tz_localize("UTC") if ts.tz is None else ts.tz_convert("UTC")
 
     @property
     def fee_rate(self) -> float:

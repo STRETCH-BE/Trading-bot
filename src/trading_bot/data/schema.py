@@ -83,6 +83,7 @@ class Pair:
     kraken_name: str  # name used in Kraken dump files ("XBTEUR")
     ccxt_symbol: str  # unified ccxt symbol ("BTC/EUR")
     ordermin: float  # minimum order size, base units
+    costmin: float  # minimum order VALUE, quote currency (EUR)
 
 
 TIMEFRAMES: dict[str, Timeframe] = {
@@ -99,9 +100,15 @@ TIMEFRAMES: dict[str, Timeframe] = {
 # runtime source is ccxt's `exchange.load_markets()[symbol]["limits"]["amount"]
 # ["min"]`, which mirrors Kraken's AssetPairs `ordermin` field; wire that in
 # during Stage 6 and assert it matches these constants at startup.
+# costmin: Kraken's cost minimum — the minimum order VALUE in the quote
+# currency (1 EUR for EUR-quoted pairs, per Kraken support article
+# 12425041458708). Same provisional caveat as ordermin: confirmed via
+# Kraken's published support documentation, NOT against the live API from
+# this environment. Stage 6 must assert both against ccxt
+# load_markets()[symbol]["limits"] ("amount.min" and "cost.min") at startup.
 PAIRS: dict[str, Pair] = {
-    "XBTEUR": Pair(kraken_name="XBTEUR", ccxt_symbol="BTC/EUR", ordermin=0.0001),
-    "ETHEUR": Pair(kraken_name="ETHEUR", ccxt_symbol="ETH/EUR", ordermin=0.01),
+    "XBTEUR": Pair(kraken_name="XBTEUR", ccxt_symbol="BTC/EUR", ordermin=0.0001, costmin=1.0),
+    "ETHEUR": Pair(kraken_name="ETHEUR", ccxt_symbol="ETH/EUR", ordermin=0.01, costmin=1.0),
 }
 
 
@@ -128,5 +135,27 @@ def min_order_units(pair: Pair | str) -> float:
     except KeyError:
         raise UnknownPairError(
             f"no registered ordermin for pair {pair!r}; known pairs: "
+            f"{sorted(PAIRS)}. Add it to PAIRS rather than assuming a default."
+        ) from None
+
+
+def cost_minimum(pair: Pair | str) -> float:
+    """Exchange minimum order value for ``pair``, in quote currency (EUR).
+
+    Raises ``UnknownPairError`` for an unregistered pair — same no-fallback
+    policy as ``min_order_units``.
+    """
+    if isinstance(pair, Pair):
+        if pair.kraken_name not in PAIRS:
+            raise UnknownPairError(
+                f"pair {pair.kraken_name!r} is not in the registry; add it to "
+                f"PAIRS with its Kraken costmin"
+            )
+        return pair.costmin
+    try:
+        return PAIRS[pair].costmin
+    except KeyError:
+        raise UnknownPairError(
+            f"no registered costmin for pair {pair!r}; known pairs: "
             f"{sorted(PAIRS)}. Add it to PAIRS rather than assuming a default."
         ) from None
