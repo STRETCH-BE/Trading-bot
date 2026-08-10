@@ -84,6 +84,8 @@ class Pair:
     ccxt_symbol: str  # unified ccxt symbol ("BTC/EUR")
     ordermin: float  # minimum order size, base units
     costmin: float  # minimum order VALUE, quote currency (EUR)
+    lot_decimals: int  # volume precision (Kraken lot_decimals)
+    price_decimals: int  # price precision / tick (Kraken pair_decimals)
 
 
 TIMEFRAMES: dict[str, Timeframe] = {
@@ -106,9 +108,20 @@ TIMEFRAMES: dict[str, Timeframe] = {
 # Kraken's published support documentation, NOT against the live API from
 # this environment. Stage 6 must assert both against ccxt
 # load_markets()[symbol]["limits"] ("amount.min" and "cost.min") at startup.
+#
+# lot_decimals / price_decimals mirror Kraken AssetPairs `lot_decimals` and
+# `pair_decimals`. Same provisional caveat as the minimums: not verified
+# against the live API from this environment, and Stage 6 must assert all
+# four against ccxt load_markets() at startup.
 PAIRS: dict[str, Pair] = {
-    "XBTEUR": Pair(kraken_name="XBTEUR", ccxt_symbol="BTC/EUR", ordermin=0.0001, costmin=1.0),
-    "ETHEUR": Pair(kraken_name="ETHEUR", ccxt_symbol="ETH/EUR", ordermin=0.01, costmin=1.0),
+    "XBTEUR": Pair(
+        kraken_name="XBTEUR", ccxt_symbol="BTC/EUR", ordermin=0.0001, costmin=1.0,
+        lot_decimals=8, price_decimals=1,
+    ),
+    "ETHEUR": Pair(
+        kraken_name="ETHEUR", ccxt_symbol="ETH/EUR", ordermin=0.01, costmin=1.0,
+        lot_decimals=8, price_decimals=2,
+    ),
 }
 
 
@@ -136,6 +149,27 @@ def min_order_units(pair: Pair | str) -> float:
         raise UnknownPairError(
             f"no registered ordermin for pair {pair!r}; known pairs: "
             f"{sorted(PAIRS)}. Add it to PAIRS rather than assuming a default."
+        ) from None
+
+
+def lot_decimals(pair: Pair | str) -> int:
+    """Volume precision for ``pair``. Raises for an unregistered pair."""
+    return _lookup(pair).lot_decimals
+
+
+def price_decimals(pair: Pair | str) -> int:
+    """Price precision (tick) for ``pair``. Raises for an unregistered pair."""
+    return _lookup(pair).price_decimals
+
+
+def _lookup(pair: Pair | str) -> Pair:
+    name = pair.kraken_name if isinstance(pair, Pair) else pair
+    try:
+        return PAIRS[name]
+    except KeyError:
+        raise UnknownPairError(
+            f"pair {name!r} is not in the registry; known pairs: {sorted(PAIRS)}. "
+            f"Add it to PAIRS rather than assuming a default."
         ) from None
 
 

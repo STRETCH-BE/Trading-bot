@@ -17,7 +17,6 @@ import argparse
 import json
 import subprocess
 import sys
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -201,7 +200,8 @@ def main() -> int:
         print("\n  constrained vs UNCONSTRAINED (same schedule, exchange minimums removed):")
         for key, r in pair_out["runs"].items():
             print(f"    {key:<24} fills {r['fills']:>5} vs {r['unconstrained_fills']:>5}  "
-                  f"final {r['final_equity']:>13,.2f} vs {r['unconstrained_final_equity']:>13,.2f}  "
+                  f"final {r['final_equity']:>13,.2f} vs "
+                  f"{r['unconstrained_final_equity']:>13,.2f}  "
                   f"drag {r['constraint_drag_vs_unconstrained']*100:>+8.2f}%")
 
         out["pairs"][pair] = pair_out

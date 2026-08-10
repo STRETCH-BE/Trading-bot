@@ -17,8 +17,6 @@ import json
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 from trading_bot.backtest import BacktestConfig, backtest
 from trading_bot.backtest.walkforward import (
     make_windows,

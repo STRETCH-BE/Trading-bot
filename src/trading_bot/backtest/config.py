@@ -75,14 +75,26 @@ class BacktestConfig:
         return ts.tz_localize("UTC") if ts.tz is None else ts.tz_convert("UTC")
 
     @property
+    def fill_model(self):
+        """The one object allowed to turn these bps into rates.
+
+        Config carries the SETTINGS; FillModel owns the ARITHMETIC. Keeping a
+        second bps->rate conversion here is exactly the duplication audit
+        finding 3 warned about, so `fee_rate` and `slippage_rate` delegate
+        rather than recompute.
+        """
+        from trading_bot.execution.fill_model import FillModel
+
+        return FillModel.from_config(self)
+
+    @property
     def fee_rate(self) -> float:
         """Fractional fee charged on each fill's notional."""
-        bps = self.taker_fee_bps if self.fee_mode == "taker" else self.maker_fee_bps
-        return bps / 10_000.0
+        return self.fill_model.fee_rate()
 
     @property
     def slippage_rate(self) -> float:
-        return self.slippage_bps / 10_000.0
+        return self.fill_model.slippage_rate
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BacktestConfig:

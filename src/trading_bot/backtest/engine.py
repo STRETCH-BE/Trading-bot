@@ -24,6 +24,7 @@ import pandas as pd
 from trading_bot.backtest.config import BacktestConfig
 from trading_bot.backtest.holdout import HoldoutUnlock, HoldoutViolation
 from trading_bot.data import schema
+from trading_bot.execution import FillModel, PortfolioState, orders_for_target
 
 SignalFn = Callable[[pd.DataFrame], pd.Series]
 
@@ -119,6 +120,7 @@ def backtest(
     pair: schema.Pair | str | None = None,
     *,
     holdout_unlock: HoldoutUnlock | None = None,
+    strategy_name: str = "backtest",
 ) -> BacktestResult:
     """Run ``signal_fn`` over ``candles`` under ``config``.
 
@@ -132,7 +134,10 @@ def backtest(
     unless a one-shot ``holdout_unlock`` token is supplied.
     """
     config = config or BacktestConfig()
-    min_units, cost_min = _resolve_order_limits(config, pair)
+    fill_model = FillModel.from_config(config)
+    # Resolve limits eagerly so a missing pair fails before any work is done,
+    # exactly as the pre-refactor engine did.
+    fill_model.limits_for(pair)
     candles = _validate_candles(candles)
 
     last_ts = candles[schema.TIMESTAMP].iloc[-1]
@@ -156,8 +161,6 @@ def backtest(
 
     cash = config.starting_capital
     units = 0.0
-    fee_rate = config.fee_rate
-    slip = config.slippage_rate
 
     fills: list[Fill] = []
     trades: list[Trade] = []
@@ -178,101 +181,91 @@ def backtest(
         target = float(targets.iloc[i])
         open_px = opens[i]
 
-        # --- rebalance at this candle's OPEN, on the previous candle's signal
-        equity_at_open = cash + units * open_px
-        desired_notional = equity_at_open * target
-        current_notional = units * open_px
-        delta_notional = desired_notional - current_notional
+        # --- rebalance at this candle's OPEN, on the previous candle's signal.
+        # Translation decides WHAT to trade; this loop only fills it. In
+        # production the risk gate sits between these two steps.
+        translation = orders_for_target(
+            PortfolioState(cash=cash, units=units),
+            target,
+            open_px,
+            pair if pair is not None else None,
+            fill_model,
+            min_rebalance_delta=config.min_rebalance_delta,
+            timestamp=ts.iloc[i],
+            signal_timestamp=ts.iloc[i - 1] if i > 0 else ts.iloc[i],
+            strategy=strategy_name,
+        )
 
-        # Dead-band: a target move smaller than min_rebalance_delta is noise
-        # (fee drift, fractional-target chatter), not a decision. A full exit
-        # (target 0 while holding) is exempt — going flat is always a real
-        # decision, however small the residual.
-        current_frac = current_notional / equity_at_open if equity_at_open > _EPS else 0.0
-        full_exit = target <= 0.0 and units > _EPS
-        wants_trade = abs(delta_notional) > _EPS
-        if (
-            wants_trade
-            and not full_exit
-            and abs(target - current_frac) < config.min_rebalance_delta
-        ):
+        if translation.suppressed_by_deadband:
             suppressed += 1
-            wants_trade = False
+        if translation.skipped_ordermin:
+            skipped += 1  # below the exchange's ordermin — never submitted
+        if translation.skipped_costmin:
+            skipped += 1  # passes ordermin but fails the quote-value costmin
+            skipped_costmin += 1
 
-        if wants_trade:
-            side = "buy" if delta_notional > 0 else "sell"
-            fill_px = open_px * (1 + slip) if side == "buy" else open_px * (1 - slip)
+        if translation.orders:
+            order = translation.orders[0]
+            side = order.side
+            fill_px = translation.fill_price
+            notional = translation.notional
+            order_units = order.units
 
+            fee = fill_model.fee(notional)
             if side == "buy":
-                # spend `budget` of cash in total, fee included
-                budget = min(delta_notional, cash)
-                notional = budget / (1 + fee_rate)
-                order_units = notional / fill_px
+                cash -= notional + fee
+                units += order_units
+                if open_entry_time is None:
+                    open_entry_time = ts.iloc[i]
+                open_units += order_units
+                open_cost_basis += notional
+                open_entry_fee += fee
             else:
-                order_units = min(-delta_notional / fill_px, units)
-                notional = order_units * fill_px
-
-            if order_units < min_units:
-                skipped += 1  # below the exchange's ordermin — never submitted
-            elif notional < cost_min:
-                skipped += 1  # passes ordermin but fails the quote-value costmin
-                skipped_costmin += 1
-            else:
-                fee = notional * fee_rate
-                if side == "buy":
-                    cash -= notional + fee
-                    units += order_units
-                    if open_entry_time is None:
-                        open_entry_time = ts.iloc[i]
-                    open_units += order_units
-                    open_cost_basis += notional
-                    open_entry_fee += fee
-                else:
-                    cash += notional - fee
-                    units -= order_units
-                    if open_entry_time is not None and open_units > _EPS:
-                        # Close a PROPORTIONAL slice of the open position. A
-                        # partial sell must retire its share of the cost basis,
-                        # or the remainder's basis is overstated for good.
-                        closed = min(order_units, open_units)
-                        share = closed / open_units
-                        closed_basis = open_cost_basis * share
-                        closed_entry_fee = open_entry_fee * share
-                        trades.append(
-                            Trade(
-                                entry_time=open_entry_time,
-                                entry_price=closed_basis / closed,
-                                exit_time=ts.iloc[i],
-                                exit_price=fill_px,
-                                units=closed,
-                                entry_fee=closed_entry_fee,
-                                exit_fee=fee,
-                                pnl=(notional - fee) - (closed_basis + closed_entry_fee),
-                            )
+                cash += notional - fee
+                units -= order_units
+                if open_entry_time is not None and open_units > _EPS:
+                    # Close a PROPORTIONAL slice of the open position. A
+                    # partial sell must retire its share of the cost basis,
+                    # or the remainder's basis is overstated for good.
+                    closed = min(order_units, open_units)
+                    share = closed / open_units
+                    closed_basis = open_cost_basis * share
+                    closed_entry_fee = open_entry_fee * share
+                    trades.append(
+                        Trade(
+                            entry_time=open_entry_time,
+                            entry_price=closed_basis / closed,
+                            exit_time=ts.iloc[i],
+                            exit_price=fill_px,
+                            units=closed,
+                            entry_fee=closed_entry_fee,
+                            exit_fee=fee,
+                            pnl=(notional - fee) - (closed_basis + closed_entry_fee),
                         )
-                        open_units -= closed
-                        open_cost_basis -= closed_basis
-                        open_entry_fee -= closed_entry_fee
-                        if open_units <= _EPS:
-                            units = 0.0
-                            open_units = 0.0
-                            open_cost_basis = 0.0
-                            open_entry_fee = 0.0
-                            open_entry_time = None
-
-                fills.append(
-                    Fill(
-                        time=ts.iloc[i],
-                        signal_time=ts.iloc[i - 1] if i > 0 else pd.NaT,
-                        side=side,
-                        price=fill_px,
-                        reference_price=open_px,
-                        units=order_units,
-                        fee=fee,
-                        cash_after=cash,
-                        units_after=units,
                     )
+                    open_units -= closed
+                    open_cost_basis -= closed_basis
+                    open_entry_fee -= closed_entry_fee
+                    if open_units <= _EPS:
+                        units = 0.0
+                        open_units = 0.0
+                        open_cost_basis = 0.0
+                        open_entry_fee = 0.0
+                        open_entry_time = None
+
+            fills.append(
+                Fill(
+                    time=ts.iloc[i],
+                    signal_time=ts.iloc[i - 1] if i > 0 else pd.NaT,
+                    side=side,
+                    price=fill_px,
+                    reference_price=open_px,
+                    units=order_units,
+                    fee=fee,
+                    cash_after=cash,
+                    units_after=units,
                 )
+            )
 
         equity_curve.append(cash + units * closes[i])
 
@@ -338,27 +331,6 @@ def round_trip_cost(config: BacktestConfig) -> float:
     """
     fee, slip = config.fee_rate, config.slippage_rate
     return 1.0 - (1 - slip) * (1 - fee) / ((1 + slip) * (1 + fee))
-
-
-def _resolve_order_limits(
-    config: BacktestConfig, pair: schema.Pair | str | None
-) -> tuple[float, float]:
-    """(ordermin units, costmin quote value) — per pair, or explicit overrides.
-
-    Never a guess: without a pair, an explicit ``min_order_units`` override is
-    required, and costmin then defaults to the override or 0 (test mode).
-    """
-    if config.min_order_units is not None:
-        return config.min_order_units, (config.costmin if config.costmin is not None else 0.0)
-    if pair is None:
-        raise ValueError(
-            "backtest() needs a `pair` to look up the exchange minimum order "
-            "size, or an explicit config.min_order_units override. Refusing to "
-            "assume a default: the wrong ordermin fills orders the exchange "
-            "would reject."
-        )
-    cost_min = config.costmin if config.costmin is not None else schema.cost_minimum(pair)
-    return schema.min_order_units(pair), cost_min
 
 
 def _validate_candles(candles: pd.DataFrame) -> pd.DataFrame:

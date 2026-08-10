@@ -34,7 +34,10 @@ def test_unknown_pair_error_names_the_known_pairs():
 
 
 def test_unregistered_pair_object_raises():
-    rogue = schema.Pair(kraken_name="XRPEUR", ccxt_symbol="XRP/EUR", ordermin=1.0, costmin=1.0)
+    rogue = schema.Pair(
+        kraken_name="XRPEUR", ccxt_symbol="XRP/EUR", ordermin=1.0, costmin=1.0,
+        lot_decimals=8, price_decimals=5,
+    )
     with pytest.raises(UnknownPairError, match="not in the registry"):
         min_order_units(rogue)
 

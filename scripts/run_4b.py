@@ -18,7 +18,6 @@ import subprocess
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
-from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -122,7 +121,8 @@ def main() -> int:
 
         hdr = (f"{'trend':>6} {'vol':>4} {'tvol':>5} | {'return%':>11} {'sharpe':>7} "
                f"{'maxDD%':>7} {'trades':>7} {'fees':>10} | {'B&H%':>11} {'excess%':>12}")
-        print(hdr); print("-" * len(hdr))
+        print(hdr)
+        print("-" * len(hdr))
         for r in rows:
             print(f"{r['trend_lookback']:>6} {r['vol_lookback']:>4} {r['target_vol']:>5.2f} | "
                   f"{r['total_return']*100:>11.1f} {r['sharpe']:>7.2f} "
