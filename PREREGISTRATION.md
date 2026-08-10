@@ -117,3 +117,47 @@ Committed before any strategy #2 code was written. The binding record is the
 commit that introduces this file; its parent is `ac43dfc` (Stage 4a results),
 and the repository contains no cross-sectional momentum implementation at
 that point in history — verifiable with `git log` and `git show`.
+
+---
+
+# Amendments
+
+Amendments are appended, never rewritten in place. Each is committed alone
+and before the work it governs, so the record shows the decision was taken
+in advance of any result rather than in response to one.
+
+## Amendment 1 — 2026-08-10
+
+**Binding record:** the commit that introduces this amendment. Its parent is
+`33ab9ce` (the original preregistration). A commit cannot contain its own
+hash, so the hash is recorded in the git history rather than in this text;
+the ordering claim below is verifiable with `git log` and `git show`.
+
+**Cross-sectional momentum was designated strategy #2. It is abandoned
+before any backtest was run, on data grounds.**
+
+The dataset contains 2 EUR pairs against a required 10. More fundamentally,
+survivorship bias in free exchange archives is **identifiable but not
+correctable**: delisted pairs' price series through their decline are
+unrecoverable from this source, and the strategy's edge claim lives entirely
+inside that region. A delisting list would name what is missing; it would not
+supply the missing returns.
+
+Investigation session only. **No results produced, no gate reached.**
+
+### Ruling
+
+**This does not consume a strategy slot.** Rule 4 guards against re-running
+after seeing a disappointing result; no result exists. Nothing was fitted,
+nothing was observed, and there is therefore nothing to be tempted by.
+
+**Strategy budget remains 2.**
+
+### Redesignation
+
+Strategy #2 is hereby redesignated as: **[to be filled after selection]**
+
+This amendment is committed **BEFORE** that strategy is chosen or written.
+The placeholder above is deliberate and is itself part of the record: at the
+time of this commit the replacement strategy was not yet selected. Filling it
+in requires a further amendment, committed before that strategy's code.
