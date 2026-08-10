@@ -1,0 +1,27 @@
+# Trading-bot configuration.
+#
+# Stage 1-3 only. Nothing here enables live trading; execution config arrives
+# with Stage 6 and defaults to paper regardless.
+
+data:
+  parquet_dir: data/parquet
+  raw_dir: data/raw
+
+backtest:
+  starting_capital: 10000.0
+  # Kraken Pro fee schedule, in basis points.
+  maker_fee_bps: 16.0
+  taker_fee_bps: 26.0
+  # Fills happen at the next candle's open, i.e. marketable -> taker.
+  fee_mode: taker
+  slippage_bps: 5.0
+  # Kraken ordermin for XBT pairs, in base units.
+  min_order_units: 0.0001
+  risk_free_rate: 0.0
+
+strategies:
+  donchian:
+    entry_lookback: 20
+    exit_lookback: 10
+    atr_period: 14
+    atr_multiple: 2.5

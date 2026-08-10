@@ -52,3 +52,18 @@ The remote sandbox this repo is often developed in has no route to
 api.kraken.com or Google Drive (proxy policy). Live `download-dump` /
 `update` runs must happen on a machine with normal network access; the test
 suite is designed to pass without it.
+
+## Stage 2-3 additions
+
+- `trading_bot.backtest` — strategy-agnostic engine. The execution-timing rule
+  (signal from candle N fills at the OPEN of candle N+1) lives in exactly one
+  place, `engine._target_positions`; `tests/test_engine_lookahead.py` fails
+  if it is ever weakened.
+- `trading_bot.strategies` — pure signal functions only. No I/O, no state, no
+  logging. Signature: `fn(candles, params) -> pd.Series` in [0.0, 1.0].
+- Every report prints the buy-and-hold benchmark after one round trip of
+  fees, and shouts at the top when excess return is negative. Do not add a
+  reporting path that can omit it.
+- Config lives in `config.yaml`; `BacktestConfig.load` and
+  `DonchianParams.load` read it. A test asserts config.yaml has not drifted
+  from the dataclass defaults.
