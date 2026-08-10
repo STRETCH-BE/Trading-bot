@@ -34,6 +34,11 @@ from trading_bot.strategies.donchian import (
     donchian_breakout,
     donchian_breakout_schedule,
 )
+from trading_bot.strategies.voltrend import (
+    VolTrendParams,
+    VolTrendSpan,
+    voltrend_schedule,
+)
 
 PPY_DAILY = 365.0
 
@@ -102,11 +107,26 @@ class GridPoint:
     total_return: float
 
 
+def voltrend_grid() -> list[VolTrendParams]:
+    """Strategy #2 grid: exactly 12 combinations (preregistration rule 2 cap)."""
+    return [
+        VolTrendParams(trend_lookback=trend, vol_lookback=vol, target_vol=tv)
+        for trend in (50, 100, 200)
+        for vol in (20, 60)
+        for tv in (0.40, 0.60)
+    ]
+
+
+def _donchian_signal(candles: pd.DataFrame, params):
+    return donchian_breakout(candles, params)
+
+
 def search_window(
     is_candles: pd.DataFrame,
-    combos: Sequence[DonchianParams],
+    combos: Sequence,
     config: BacktestConfig,
     pair: str,
+    signal_factory: Callable[[pd.DataFrame, object], pd.Series] = _donchian_signal,
 ) -> list[GridPoint]:
     """Backtest every combo on the in-sample slice, standalone (starts flat).
 
@@ -116,7 +136,7 @@ def search_window(
     for params in combos:
         result = backtest(
             is_candles,
-            lambda c, p=params: donchian_breakout(c, p),
+            lambda c, p=params: signal_factory(c, p),
             config,
             pair=pair,
         )
@@ -147,6 +167,14 @@ def _donchian_scheduler(
     candles: pd.DataFrame, spans: list[ParamSpan], trade_start: int
 ) -> pd.Series:
     return donchian_breakout_schedule(candles, spans, trade_start=trade_start)
+
+
+def voltrend_scheduler(
+    candles: pd.DataFrame, spans: list, trade_start: int
+) -> pd.Series:
+    """Scheduler for strategy #2; ``spans`` carry VolTrendParams."""
+    converted = [VolTrendSpan(start=s.start, params=s.params) for s in spans]
+    return voltrend_schedule(candles, converted, trade_start=trade_start)
 
 
 def run_oos_concatenated(
@@ -272,10 +300,19 @@ class StabilityStats:
 
 
 GRID_STEPS = {"entry_lookback": 5, "exit_lookback": 5, "atr_multiple": 0.5}
+# Strategy #2's grid is coarse by design (12-combination cap), so its "steps"
+# are the minimum gap along each axis. NOTE: on a 3x2x2 grid a move of more
+# than 2 steps is only reachable on trend_lookback (50 -> 200); the >2-step
+# stability criterion is therefore far weaker here than on a 396-point grid
+# and must not be read as strong evidence of stability.
+VOLTREND_GRID_STEPS = {"trend_lookback": 50, "vol_lookback": 40, "target_vol": 0.20}
 
 
-def parameter_stability(params_seq: list[DonchianParams]) -> StabilityStats:
-    fields_ = list(GRID_STEPS)
+def parameter_stability(
+    params_seq: list, grid_steps: dict[str, float] | None = None
+) -> StabilityStats:
+    grid_steps = grid_steps or GRID_STEPS
+    fields_ = list(grid_steps)
     changes: dict[str, list[float]] = {f: [] for f in fields_}
     n_changed = 0
     for a, b in zip(params_seq, params_seq[1:], strict=False):
@@ -289,7 +326,7 @@ def parameter_stability(params_seq: list[DonchianParams]) -> StabilityStats:
     return StabilityStats(
         mean_abs_change={f: sum(v) / n for f, v in changes.items()},
         jumps_gt_2_steps={
-            f: sum(1 for d in changes[f] if d > 2 * GRID_STEPS[f]) for f in fields_
+            f: sum(1 for d in changes[f] if d > 2 * grid_steps[f]) for f in fields_
         },
         n_transitions=len(params_seq) - 1,
         n_changed=n_changed,
