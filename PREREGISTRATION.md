@@ -199,3 +199,54 @@ This consumes **strategy slot 1 of the remaining 2**. One slot remains after
 this run, whatever its outcome. Rule 4 applies from the moment it is run: the
 grid and window configurations above may not be revised in response to the
 result.
+
+## Amendment 3 — 2026-08-10
+
+**Binding record:** the commit that introduces this amendment. Parent is
+`c5c823e` (strategy #2 gate results).
+
+### Grid discrepancy, surfaced not resolved silently
+
+A later-authored specification for strategy #2 proposed a different
+12-combination grid — `trend_lookback [50,100,150,200]` ×
+`target_vol [0.40,0.60,0.80]` with `vol_lookback` fixed at 30 — from the one
+actually run at `e611481` (`trend_lookback [50,100,200]` ×
+`vol_lookback [20,60]` × `target_vol [0.40,0.60]`). That specification was
+written **before** the strategy #2 results were seen, but would have been
+**adopted after**.
+
+**Ruling: the completed run at `e611481` / `c5c823e` stands as strategy #2,
+final.** Re-running under the alternative grid would be a new experiment
+under rule 4 and would consume the final strategy slot. It was declined.
+
+**Slot accounting unchanged: 1 of 2 consumed, 1 remains.**
+
+### Holdout: not unlocked
+
+An instruction to unlock the holdout was declined on two independent grounds:
+
+1. **Rule 3 bars it.** The holdout unlocks only on a strategy that has passed
+   every other gate. Strategy #2 failed criteria 1 and 4 on both pairs.
+2. **The holdout is empty.** Data ends 2025-12-31; candles on/after
+   2026-01-01 number **zero** across all four datasets. The REST top-up that
+   would fetch them remains blocked by the sandbox egress proxy. Any holdout
+   "result" would have been fabricated.
+
+`HoldoutUnlock` was never minted. **The single permitted use remains
+available.**
+
+### Strategy #2 outcome (recorded)
+
+Gate **FAILED**. Criteria 2, 3 and 5 passed; criteria 1 and 4 failed on both
+pairs. Concatenated out-of-sample excess over buy-and-hold: **−7,219 pp
+(XBTEUR), −16,833 pp (ETHEUR)**; 0 of 3 window configurations beat
+buy-and-hold on either pair. Full record:
+`results/4a_strategy2_voltrend_20260810T230133Z_e611481.json`.
+
+Note on criterion 5: it passed only because a 3×2×2 grid makes a >2-step move
+reachable on one axis alone. Parameters changed at 49/70 and 41/57 boundaries.
+**This PASS is not evidence of a stable parameter regime.**
+
+Supporting analyses, report-only, no selection and no slot consumed:
+`results/4b_strategy2_voltrend_20260810T230858Z_c5c823e.json` (sensitivity),
+`results/4c_strategy2_voltrend_20260810T231014Z_c5c823e.json` (EUR 100).

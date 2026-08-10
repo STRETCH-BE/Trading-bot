@@ -1,0 +1,518 @@
+{
+ "meta": {
+  "stage": "4b_strategy2_voltrend",
+  "timestamp_utc": "20260810T230858Z",
+  "git_hash": "c5c823e",
+  "walk_forward_source": "results/4a_strategy2_voltrend_20260810T230133Z_e611481.json",
+  "config": {
+   "starting_capital": 10000.0,
+   "maker_fee_bps": 16.0,
+   "taker_fee_bps": 26.0,
+   "fee_mode": "taker",
+   "slippage_bps": 5.0,
+   "min_order_units": null,
+   "costmin": null,
+   "min_rebalance_delta": 0.05,
+   "holdout_start": "2026-01-01",
+   "periods_per_year": 365.0,
+   "risk_free_rate": 0.0
+  },
+  "floor_rule": {
+   "min_median_trades": 500.0,
+   "max_missing": 1,
+   "window_days": 30
+  }
+ },
+ "pairs": {
+  "XBTEUR": {
+   "range": [
+    "2013-12-03",
+    "2025-12-31"
+   ],
+   "n_candles": 4411,
+   "rows": [
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 20,
+     "target_vol": 0.6,
+     "total_return": 366.4771322273062,
+     "sharpe": 1.4066878378885044,
+     "max_drawdown": 0.5527850304785614,
+     "trades": 211,
+     "fills": 438,
+     "fees": 748595.37097952,
+     "bh_return": 93.01236469771648,
+     "excess": 273.4647675295897
+    },
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 60,
+     "target_vol": 0.6,
+     "total_return": 284.54224970501224,
+     "sharpe": 1.353599815320559,
+     "max_drawdown": 0.5473345968454958,
+     "trades": 158,
+     "fills": 307,
+     "fees": 557553.264372409,
+     "bh_return": 93.01236469771648,
+     "excess": 191.52988500729577
+    },
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 60,
+     "target_vol": 0.4,
+     "total_return": 134.43134944350092,
+     "sharpe": 1.4535102290612119,
+     "max_drawdown": 0.4345936274815094,
+     "trades": 193,
+     "fills": 372,
+     "fees": 234924.81194041474,
+     "bh_return": 93.01236469771648,
+     "excess": 41.41898474578444
+    },
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 20,
+     "target_vol": 0.4,
+     "total_return": 132.7091244922136,
+     "sharpe": 1.423946827054774,
+     "max_drawdown": 0.4965872608878725,
+     "trades": 272,
+     "fills": 567,
+     "fees": 277225.74972795066,
+     "bh_return": 93.01236469771648,
+     "excess": 39.69675979449711
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 60,
+     "target_vol": 0.6,
+     "total_return": 111.58781545938653,
+     "sharpe": 1.1494813843938656,
+     "max_drawdown": 0.5823353684834229,
+     "trades": 98,
+     "fills": 185,
+     "fees": 125649.42432035235,
+     "bh_return": 93.01236469771648,
+     "excess": 18.575450761670055
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 20,
+     "target_vol": 0.6,
+     "total_return": 99.54368689848563,
+     "sharpe": 1.1382018279044874,
+     "max_drawdown": 0.5566692387404549,
+     "trades": 150,
+     "fills": 296,
+     "fees": 121223.63220023563,
+     "bh_return": 93.01236469771648,
+     "excess": 6.531322200769154
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 60,
+     "target_vol": 0.6,
+     "total_return": 98.10264932674748,
+     "sharpe": 1.1276773479400113,
+     "max_drawdown": 0.5424733603615374,
+     "trades": 131,
+     "fills": 254,
+     "fees": 160092.24353054646,
+     "bh_return": 93.01236469771648,
+     "excess": 5.090284629031004
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 20,
+     "target_vol": 0.6,
+     "total_return": 92.9559065409268,
+     "sharpe": 1.1219151355310608,
+     "max_drawdown": 0.5418952261333703,
+     "trades": 181,
+     "fills": 361,
+     "fees": 164731.5536343608,
+     "bh_return": 93.01236469771648,
+     "excess": -0.05645815678967381
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 60,
+     "target_vol": 0.4,
+     "total_return": 58.89766464112068,
+     "sharpe": 1.2134927082733427,
+     "max_drawdown": 0.4290703969838126,
+     "trades": 136,
+     "fills": 265,
+     "fees": 61440.97474882054,
+     "bh_return": 93.01236469771648,
+     "excess": -34.1147000565958
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 60,
+     "target_vol": 0.4,
+     "total_return": 57.54932909206614,
+     "sharpe": 1.2130283716090964,
+     "max_drawdown": 0.4082747586175783,
+     "trades": 163,
+     "fills": 316,
+     "fees": 86268.18213806166,
+     "bh_return": 93.01236469771648,
+     "excess": -35.46303560565034
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 20,
+     "target_vol": 0.4,
+     "total_return": 47.668178564186626,
+     "sharpe": 1.1547361970382812,
+     "max_drawdown": 0.4536132954458487,
+     "trades": 224,
+     "fills": 442,
+     "fees": 65289.1859929993,
+     "bh_return": 93.01236469771648,
+     "excess": -45.34418613352985
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 20,
+     "target_vol": 0.4,
+     "total_return": 40.84675214710255,
+     "sharpe": 1.112512602170165,
+     "max_drawdown": 0.47280050383012834,
+     "trades": 248,
+     "fills": 505,
+     "fees": 82877.9611407633,
+     "bh_return": 93.01236469771648,
+     "excess": -52.16561255061393
+    }
+   ],
+   "positive_excess_fraction": 0.5833333333333334,
+   "marginals": {
+    "trend_lookback": {
+     "50": {
+      "mean_excess": 136.52759926929176,
+      "mean_sharpe": 1.4094361773312625,
+      "mean_return": 229.53996396700825,
+      "n": 4
+     },
+     "100": {
+      "mean_excess": -20.648705421005737,
+      "mean_sharpe": 1.1437833643125832,
+      "mean_return": 72.36365927671073,
+      "n": 4
+     },
+     "200": {
+      "mean_excess": -13.588028306921611,
+      "mean_sharpe": 1.1639780294024942,
+      "mean_return": 79.42433639079486,
+      "n": 4
+     }
+    },
+    "vol_lookback": {
+     "20": {
+      "mean_excess": 37.02109878065376,
+      "mean_sharpe": 1.2263334045978789,
+      "mean_return": 130.0334634783702,
+      "n": 6
+     },
+     "60": {
+      "mean_excess": 31.172811580255853,
+      "mean_sharpe": 1.2517983094330145,
+      "mean_return": 124.18517627797233,
+      "n": 6
+     }
+    },
+    "target_vol": {
+     "0.4": {
+      "mean_excess": -14.328631634351396,
+      "mean_sharpe": 1.261871155867812,
+      "mean_return": 78.6837330633651,
+      "n": 6
+     },
+     "0.6": {
+      "mean_excess": 82.522541995261,
+      "mean_sharpe": 1.2162605581630814,
+      "mean_return": 175.5349066929775,
+      "n": 6
+     }
+    }
+   },
+   "wf_selection_counts": {
+    "(50, 60, 0.4)": 14,
+    "(50, 20, 0.6)": 10,
+    "(100, 20, 0.4)": 6,
+    "(200, 20, 0.4)": 21,
+    "(50, 20, 0.4)": 12,
+    "(50, 60, 0.6)": 5,
+    "(100, 60, 0.4)": 2,
+    "(100, 20, 0.6)": 1
+   },
+   "wf_selection_ranks_static": {
+    "(50, 60, 0.4)": 3,
+    "(50, 20, 0.6)": 1,
+    "(100, 20, 0.4)": 12,
+    "(200, 20, 0.4)": 11,
+    "(50, 20, 0.4)": 4,
+    "(50, 60, 0.6)": 2,
+    "(100, 60, 0.4)": 10,
+    "(100, 20, 0.6)": 8
+   },
+   "wf_weighted_mean_static_rank": 6.211267605633803,
+   "best_static": [
+    50,
+    20,
+    0.6
+   ]
+  },
+  "ETHEUR": {
+   "range": [
+    "2016-01-27",
+    "2025-12-31"
+   ],
+   "n_candles": 3627,
+   "rows": [
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 60,
+     "target_vol": 0.6,
+     "total_return": 139.06401888955384,
+     "sharpe": 1.3049582611078172,
+     "max_drawdown": 0.5295768101528251,
+     "trades": 168,
+     "fills": 322,
+     "fees": 196952.6263028611,
+     "bh_return": 1143.6274396486901,
+     "excess": -1004.5634207591363
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 60,
+     "target_vol": 0.6,
+     "total_return": 129.30714910231796,
+     "sharpe": 1.2733632004635118,
+     "max_drawdown": 0.5074310313312058,
+     "trades": 107,
+     "fills": 199,
+     "fees": 77651.15522610494,
+     "bh_return": 1143.6274396486901,
+     "excess": -1014.3202905463722
+    },
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 20,
+     "target_vol": 0.6,
+     "total_return": 115.79828583903097,
+     "sharpe": 1.2495496575109697,
+     "max_drawdown": 0.5338078381782405,
+     "trades": 241,
+     "fills": 457,
+     "fees": 199404.44131891173,
+     "bh_return": 1143.6274396486901,
+     "excess": -1027.8291538096591
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 60,
+     "target_vol": 0.6,
+     "total_return": 100.0877093765872,
+     "sharpe": 1.2131374373982426,
+     "max_drawdown": 0.5671439445170309,
+     "trades": 141,
+     "fills": 268,
+     "fees": 107511.37072681301,
+     "bh_return": 1143.6274396486901,
+     "excess": -1043.539730272103
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 20,
+     "target_vol": 0.6,
+     "total_return": 97.17631112830549,
+     "sharpe": 1.2128095937264227,
+     "max_drawdown": 0.48952685034231114,
+     "trades": 190,
+     "fills": 366,
+     "fees": 82470.91808530362,
+     "bh_return": 1143.6274396486901,
+     "excess": -1046.4511285203846
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 20,
+     "target_vol": 0.6,
+     "total_return": 87.58101017807527,
+     "sharpe": 1.1830429443460788,
+     "max_drawdown": 0.548687785764633,
+     "trades": 219,
+     "fills": 420,
+     "fees": 123847.8196694534,
+     "bh_return": 1143.6274396486901,
+     "excess": -1056.0464294706148
+    },
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 20,
+     "target_vol": 0.4,
+     "total_return": 36.06039847338371,
+     "sharpe": 1.2344090132243475,
+     "max_drawdown": 0.4346328965132702,
+     "trades": 263,
+     "fills": 492,
+     "fees": 62940.1804399187,
+     "bh_return": 1143.6274396486901,
+     "excess": -1107.5670411753065
+    },
+    {
+     "trend_lookback": 50,
+     "vol_lookback": 60,
+     "target_vol": 0.4,
+     "total_return": 34.88667118931505,
+     "sharpe": 1.2859765849035707,
+     "max_drawdown": 0.4316797517037202,
+     "trades": 182,
+     "fills": 329,
+     "fees": 46539.444635683794,
+     "bh_return": 1143.6274396486901,
+     "excess": -1108.740768459375
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 60,
+     "target_vol": 0.4,
+     "total_return": 34.646383893930796,
+     "sharpe": 1.262484472825832,
+     "max_drawdown": 0.3652395237056533,
+     "trades": 108,
+     "fills": 194,
+     "fees": 17633.59751271491,
+     "bh_return": 1143.6274396486901,
+     "excess": -1108.9810557547594
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 20,
+     "target_vol": 0.4,
+     "total_return": 33.42522687922155,
+     "sharpe": 1.205492459822999,
+     "max_drawdown": 0.4142309484132586,
+     "trades": 243,
+     "fills": 463,
+     "fees": 46825.85222809612,
+     "bh_return": 1143.6274396486901,
+     "excess": -1110.2022127694686
+    },
+    {
+     "trend_lookback": 200,
+     "vol_lookback": 20,
+     "target_vol": 0.4,
+     "total_return": 32.40074819825099,
+     "sharpe": 1.2030423383788693,
+     "max_drawdown": 0.36179906897382474,
+     "trades": 212,
+     "fills": 406,
+     "fees": 30888.93662831463,
+     "bh_return": 1143.6274396486901,
+     "excess": -1111.2266914504391
+    },
+    {
+     "trend_lookback": 100,
+     "vol_lookback": 60,
+     "target_vol": 0.4,
+     "total_return": 27.848778550726873,
+     "sharpe": 1.193341325418696,
+     "max_drawdown": 0.4008324454302492,
+     "trades": 147,
+     "fills": 264,
+     "fees": 26270.496748199104,
+     "bh_return": 1143.6274396486901,
+     "excess": -1115.7786610979633
+    }
+   ],
+   "positive_excess_fraction": 0.0,
+   "marginals": {
+    "trend_lookback": {
+     "50": {
+      "mean_excess": -1062.1750960508693,
+      "mean_sharpe": 1.2687233791866763,
+      "mean_return": 81.45234359782089,
+      "n": 4
+     },
+     "100": {
+      "mean_excess": -1081.3917584025376,
+      "mean_sharpe": 1.198753541746504,
+      "mean_return": 62.23568124615272,
+      "n": 4
+     },
+     "200": {
+      "mean_excess": -1070.2447915679888,
+      "mean_sharpe": 1.2379249013486588,
+      "mean_return": 73.38264808070132,
+      "n": 4
+     }
+    },
+    "vol_lookback": {
+     "20": {
+      "mean_excess": -1076.553776199312,
+      "mean_sharpe": 1.2147243345016143,
+      "mean_return": 67.073663449378,
+      "n": 6
+     },
+     "60": {
+      "mean_excess": -1065.9873211482848,
+      "mean_sharpe": 1.2555435470196117,
+      "mean_return": 77.6401185004053,
+      "n": 6
+     }
+    },
+    "target_vol": {
+     "0.4": {
+      "mean_excess": -1110.4160717845518,
+      "mean_sharpe": 1.2307910324290525,
+      "mean_return": 33.21136786413816,
+      "n": 6
+     },
+     "0.6": {
+      "mean_excess": -1032.125025563045,
+      "mean_sharpe": 1.239476849092174,
+      "mean_return": 111.50241408564511,
+      "n": 6
+     }
+    }
+   },
+   "wf_selection_counts": {
+    "(100, 20, 0.4)": 11,
+    "(200, 20, 0.4)": 14,
+    "(50, 20, 0.6)": 6,
+    "(50, 20, 0.4)": 8,
+    "(100, 60, 0.4)": 2,
+    "(50, 60, 0.4)": 10,
+    "(100, 20, 0.6)": 3,
+    "(50, 60, 0.6)": 4
+   },
+   "wf_selection_ranks_static": {
+    "(100, 20, 0.4)": 10,
+    "(200, 20, 0.4)": 11,
+    "(50, 20, 0.6)": 3,
+    "(50, 20, 0.4)": 7,
+    "(100, 60, 0.4)": 12,
+    "(50, 60, 0.4)": 8,
+    "(100, 20, 0.6)": 6,
+    "(50, 60, 0.6)": 1
+   },
+   "wf_weighted_mean_static_rank": 8.0,
+   "best_static": [
+    50,
+    60,
+    0.6
+   ]
+  }
+ },
+ "cross_pair_rank_correlation": {
+  "excess": 0.7552447552447552,
+  "sharpe": 0.6153846153846154,
+  "total_return": 0.7552447552447552
+ },
+ "cross_pair_large_rank_flips": []
+}
