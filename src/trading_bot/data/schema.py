@@ -18,20 +18,22 @@ OPEN = "open"
 HIGH = "high"
 LOW = "low"
 CLOSE = "close"
+VWAP = "vwap"  # volume-weighted average price; REST only, NULL for dump rows
 VOLUME = "volume"  # base-asset volume traded during the candle
-TRADES = "trades"  # trade count; nullable (Kraken dumps have it, ccxt OHLCV does not)
-SOURCE = "source"  # provenance: SOURCE_DUMP or SOURCE_API
+TRADES = "trades"  # trade count
+SOURCE = "source"  # provenance: SOURCE_DUMP or SOURCE_REST
 
-COLUMNS = [TIMESTAMP, OPEN, HIGH, LOW, CLOSE, VOLUME, TRADES, SOURCE]
+COLUMNS = [TIMESTAMP, OPEN, HIGH, LOW, CLOSE, VWAP, VOLUME, TRADES, SOURCE]
 
-SOURCE_DUMP = "kraken_dump"
-SOURCE_API = "ccxt_api"
+SOURCE_DUMP = "dump"
+SOURCE_REST = "rest"
 
 DTYPES: dict[str, str] = {
     OPEN: "float64",
     HIGH: "float64",
     LOW: "float64",
     CLOSE: "float64",
+    VWAP: "float64",  # NaN for dump-sourced rows
     VOLUME: "float64",
     TRADES: "Int64",  # nullable integer
     SOURCE: "string",

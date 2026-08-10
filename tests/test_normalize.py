@@ -50,7 +50,7 @@ def test_from_ccxt(api_rows):
     assert list(df.columns) == schema.COLUMNS
     assert len(df) == 12
     assert df[schema.TIMESTAMP].iloc[0] == pd.Timestamp("2024-01-03 00:00:00", tz="UTC")
-    assert (df[schema.SOURCE] == schema.SOURCE_API).all()
+    assert (df[schema.SOURCE] == schema.SOURCE_REST).all()
     assert df[schema.TRADES].isna().all()
 
 

@@ -60,6 +60,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     p.set_defaults(func=_cmd_report)
 
+    p = sub.add_parser("audit", help="full data-quality audit incl. gap runs")
+    p.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    p.add_argument("--top-gaps", type=int, default=10)
+    p.set_defaults(func=_cmd_audit)
+
     return parser
 
 
@@ -134,6 +139,15 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     if not reports:
         return 1  # nothing to validate is a failure for CI purposes
     return 0 if all(rep.ok for rep in reports) else 1
+
+
+def _cmd_audit(args: argparse.Namespace) -> int:
+    from trading_bot.data.audit import audit_store, render
+
+    store = ParquetStore(args.data_dir)
+    audits = audit_store(store)
+    print(render(audits, top_gaps=args.top_gaps))
+    return 0 if audits and all(a.integrity_ok for a in audits) else 1
 
 
 def _cmd_report(args: argparse.Namespace) -> int:

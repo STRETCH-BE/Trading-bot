@@ -92,7 +92,7 @@ def test_upsert_appends_new_rows(store, api_rows):
     out = store.read(XBTEUR, H1)
     assert len(out) == 60
     assert out[schema.TIMESTAMP].is_monotonic_increasing
-    assert out[schema.SOURCE].iloc[-1] == schema.SOURCE_API
+    assert out[schema.SOURCE].iloc[-1] == schema.SOURCE_REST
 
 
 def test_last_timestamp(store):

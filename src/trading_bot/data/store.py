@@ -25,6 +25,7 @@ _ARROW_SCHEMA = pa.schema(
         pa.field(schema.HIGH, pa.float64()),
         pa.field(schema.LOW, pa.float64()),
         pa.field(schema.CLOSE, pa.float64()),
+        pa.field(schema.VWAP, pa.float64()),
         pa.field(schema.VOLUME, pa.float64()),
         pa.field(schema.TRADES, pa.int64()),
         pa.field(schema.SOURCE, pa.string()),
