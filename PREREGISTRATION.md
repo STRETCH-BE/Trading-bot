@@ -161,3 +161,41 @@ This amendment is committed **BEFORE** that strategy is chosen or written.
 The placeholder above is deliberate and is itself part of the record: at the
 time of this commit the replacement strategy was not yet selected. Filling it
 in requires a further amendment, committed before that strategy's code.
+
+## Amendment 2 — 2026-08-10
+
+**Binding record:** the commit that introduces this amendment. Its parent is
+`9d0fae8` (amendment 1). Committed **before any strategy #2 code exists** —
+verifiable with `git log` and `git show`: at this commit the repository
+contains no volatility-targeted trend implementation.
+
+Filling the placeholder left by amendment 1:
+
+> **Strategy #2 is hereby redesignated as: volatility-targeted trend on
+> daily XBTEUR and ETHEUR.**
+>
+> Rationale: strategy #1's binary sizing paid full round-trip fees at every
+> whipsaw and held full exposure through high-volatility periods where
+> drawdowns were made. Vol-targeting addresses both mechanisms while using
+> the trend effect already demonstrated real by the shuffle control (OOS
+> Sharpe 0.91/1.20 vs 0.36/0.54 shuffled).
+
+### Specification, fixed before any result
+
+- **Direction** from a trend filter; **size** from inverse realized
+  volatility. Target position is continuous in [0.0, 1.0]: zero when the
+  trend filter is off, otherwise `min(target_vol / realized_vol, 1.0)`.
+- **Grid, exactly 12 combinations** (rule 2 cap, at the limit, not over):
+  `trend_lookback ∈ {50, 100, 200}` × `vol_lookback ∈ {20, 60}` ×
+  `target_vol ∈ {0.40, 0.60}`.
+- Costs, boundaries and gate criteria are unchanged from rule 5 and the
+  Stage 4a protocol: liquidity floor T=500, end at holdout minus one day,
+  180/60/60 main plus 90/30 and 360/90, selection by in-sample Sharpe,
+  shuffled-returns control, position continuity across window boundaries.
+
+### Slot accounting
+
+This consumes **strategy slot 1 of the remaining 2**. One slot remains after
+this run, whatever its outcome. Rule 4 applies from the moment it is run: the
+grid and window configurations above may not be revised in response to the
+result.
