@@ -86,13 +86,11 @@ def test_update_empty_store_warns_and_fetches_window(store, api_rows):
 
 def test_update_no_new_candles(seeded, api_rows):
     """Right after the stored tail closed, the API has nothing new to add."""
-    result = update(
-        seeded,
-        FakeExchange(api_rows),
-        XBTEUR,
-        H1,
-        now=datetime(2024, 1, 3, 0, 30, tzinfo=UTC),  # 00:00 candle still open
-    )
+    now = datetime(2024, 1, 3, 0, 30, tzinfo=UTC)  # 00:00 candle still open
+    # A correct exchange never returns candles opening after `now`; giving
+    # the fake the full future fixture would trip the clock-drift guard.
+    available = [r for r in api_rows if r[0] <= now.timestamp() * 1000]
+    result = update(seeded, FakeExchange(available), XBTEUR, H1, now=now)
     assert result.appended == 0
     assert result.last_after == pd.Timestamp("2024-01-02 23:00:00", tz="UTC")
 

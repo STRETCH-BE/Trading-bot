@@ -48,6 +48,12 @@ class Metrics:
     ends_with_open_position: bool = False
     unpaid_exit_cost: float = 0.0
 
+    # FINDING 11: a strategy that can never afford the exchange minimum sits
+    # flat forever while the report shows a number nobody reads.
+    intended_orders: int = 0
+    skipped_order_fraction: float = 0.0
+    skipped_orders_excessive: bool = False
+
     @property
     def beats_buy_and_hold(self) -> bool:
         return self.excess_return > 0
@@ -119,6 +125,11 @@ def compute_metrics(result: BacktestResult, config: BacktestConfig | None = None
         start=start_ts,
         end=end_ts,
         skipped_orders=result.skipped_orders,
+        intended_orders=len(result.fills) + result.skipped_orders,
+        skipped_order_fraction=_skipped_fraction(result),
+        skipped_orders_excessive=(
+            _skipped_fraction(result) > config.max_skipped_order_fraction
+        ),
         ends_with_open_position=not result.ends_flat,
         unpaid_exit_cost=(
             0.0
@@ -127,6 +138,11 @@ def compute_metrics(result: BacktestResult, config: BacktestConfig | None = None
             * (config.fee_rate + config.slippage_rate)
         ),
     )
+
+
+def _skipped_fraction(result: BacktestResult) -> float:
+    intended = len(result.fills) + result.skipped_orders
+    return result.skipped_orders / intended if intended else 0.0
 
 
 def _sharpe(returns: pd.Series, ppy: float, risk_free: float) -> float:

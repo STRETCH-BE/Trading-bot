@@ -116,10 +116,14 @@ def test_dump_row_fed_to_the_rest_parser_is_rejected():
         from_kraken_rest([[TS, OPEN, HIGH, LOW, CLOSE, VOLUME, TRADES]])
 
 
-def test_kraken_rest_rows_fed_to_ccxt_parser_are_rejected():
-    """8-column native rows must not be silently truncated to ccxt's 6."""
-    with pytest.raises(NormalizeError, match="use from_kraken_rest"):
-        from_ccxt(REST_ROW)
+def test_kraken_rest_rows_through_ccxt_parser_keep_vwap_and_count():
+    """FINDING 13: 8-column native rows must PRESERVE vwap and count,
+    not be truncated to ccxt's six and silently lose both."""
+    out = from_ccxt(REST_ROW)
+    assert out[schema.VWAP].iloc[0] == VWAP
+    assert out[schema.VOLUME].iloc[0] == VOLUME
+    assert out[schema.TRADES].iloc[0] == TRADES
+    pd.testing.assert_frame_equal(out, from_kraken_rest(REST_ROW))
 
 
 def test_multi_row_equivalence_holds_across_a_batch():

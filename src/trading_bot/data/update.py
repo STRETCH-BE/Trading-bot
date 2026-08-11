@@ -10,6 +10,7 @@ dump must be ingested first. That situation raises ``GapError`` unless
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -19,6 +20,8 @@ import pandas as pd
 from trading_bot.data import schema
 from trading_bot.data.normalize import from_ccxt
 from trading_bot.data.store import ParquetStore
+
+log = logging.getLogger(__name__)
 
 # Kraken's documented OHLC depth limit (candles per request AND total depth).
 KRAKEN_OHLC_LIMIT = 720
@@ -40,6 +43,10 @@ class Exchange(Protocol):
 
 class GapError(RuntimeError):
     """The API's history window no longer overlaps the stored data."""
+
+
+class ClockDriftError(RuntimeError):
+    """Fetched candles are dated after the local clock — time sync is broken."""
 
 
 @dataclass
@@ -90,21 +97,62 @@ def update(
     else:
         since_ms = int(last_before.timestamp() * 1000) + timeframe.step_ms
 
-    rows = _fetch_all(exchange, pair, timeframe, since_ms)
+    rows, truncated = _fetch_all(exchange, pair, timeframe, since_ms)
     result.fetched = len(rows)
+    if truncated:
+        # FINDING 9: silently stopping at the page cap would look like "that is
+        # all there is". Estimate what was left behind so the size is visible.
+        lost = f"~{_MAX_PAGES * KRAKEN_OHLC_LIMIT:,}+ candles beyond the cap"
+        msg = (
+            f"{pair.kraken_name}/{timeframe.name}: pagination hit the "
+            f"{_MAX_PAGES}-page safety cap after {len(rows):,} rows and stopped "
+            f"early. Data is INCOMPLETE — {lost} may be missing. Re-run to "
+            f"continue, or ingest a newer dump."
+        )
+        log.error(msg)
+        result.warnings.append(msg)
+
     if not rows:
         return result
 
     df = from_ccxt(rows)
+
+    # FINDING 5: a candle whose OPEN time is after wall clock is impossible with
+    # a correct clock. Detect it explicitly — the old code filtered these out
+    # and returned fetched=N appended=0 warnings=0, which is indistinguishable
+    # from "nothing new". A VM with a drifted clock silently stopped ingesting.
+    now_ts = pd.Timestamp(now)
+    from_the_future = df[df[schema.TIMESTAMP] > now_ts]
+    if not from_the_future.empty:
+        newest = from_the_future[schema.TIMESTAMP].max()
+        drift = (newest - now_ts).total_seconds()
+        raise ClockDriftError(
+            f"{pair.kraken_name}/{timeframe.name}: {len(from_the_future)} of "
+            f"{len(df)} fetched candles are dated AFTER the local clock. Newest "
+            f"candle opens {newest}, local now is {now_ts} — the machine clock is "
+            f"behind by at least {drift:,.0f}s ({drift / 3600:.1f}h). Refusing to "
+            f"ingest: with a wrong clock this silently stores nothing and reports "
+            f"success. Fix time sync (chrony/systemd-timesyncd) and re-run."
+        )
+
     if since_ms is not None:
         # Kraken ignores a `since` older than its depth window and returns the
         # window anyway; also guards any exchange that rounds `since` down.
         df = df[df[schema.TIMESTAMP] >= pd.Timestamp(since_ms, unit="ms", tz="UTC")]
 
     # The newest candle is still forming until open-time + step has passed.
-    cutoff = pd.Timestamp(now) - timeframe.step
+    cutoff = now_ts - timeframe.step
     df = df[df[schema.TIMESTAMP] <= cutoff]
     if df.empty:
+        # Legitimate (nothing has closed since the last run) but must not be
+        # silent: fetched > 0 with appended == 0 is worth seeing in a log.
+        msg = (
+            f"{pair.kraken_name}/{timeframe.name}: fetched {len(rows)} candle(s) "
+            f"but stored none — all were already held, older than `since`, or "
+            f"still forming. Nothing was written."
+        )
+        log.warning(msg)
+        result.warnings.append(msg)
         return result
 
     gap_msgs: list[str] = []
@@ -142,11 +190,16 @@ def _fetch_all(
     pair: schema.Pair,
     timeframe: schema.Timeframe,
     since_ms: int | None,
-) -> list[list[Any]]:
-    """Page through fetch_ohlcv until the exchange stops making progress."""
+) -> tuple[list[list[Any]], bool]:
+    """Page through fetch_ohlcv. Returns (rows, hit_page_cap).
+
+    ``hit_page_cap`` is True when the loop stopped because of the safety cap
+    rather than because the exchange ran out of data — the caller must warn,
+    because the result is incomplete.
+    """
     out: list[list[Any]] = []
     cursor = since_ms
-    for _ in range(_MAX_PAGES):
+    for page_no in range(_MAX_PAGES):
         page = exchange.fetch_ohlcv(
             pair.ccxt_symbol,
             timeframe=timeframe.ccxt_code,
@@ -154,12 +207,14 @@ def _fetch_all(
             limit=KRAKEN_OHLC_LIMIT,
         )
         if not page:
-            break
+            return out, False
         out.extend(page)
         if len(page) < KRAKEN_OHLC_LIMIT:
-            break
+            return out, False
         next_cursor = int(page[-1][0]) + timeframe.step_ms
         if cursor is not None and next_cursor <= cursor:
-            break  # no forward progress; avoid spinning
+            return out, False  # no forward progress; avoid spinning
         cursor = next_cursor
-    return out
+        if page_no == _MAX_PAGES - 1:
+            return out, True  # stopped by the cap, not by the exchange
+    return out, True

@@ -41,6 +41,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("ingest", help="ingest dump CSVs into the parquet store")
     p.add_argument("source", type=Path, help="zip archive, directory, or single CSV")
     _add_common(p)
+    p.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="accept an archive missing some requested datasets (default: fail)",
+    )
     p.set_defaults(func=_cmd_ingest)
 
     p = sub.add_parser("update", help="top up from the ccxt Kraken REST API")
@@ -99,7 +104,14 @@ def _cmd_download(args: argparse.Namespace) -> int:
 def _cmd_ingest(args: argparse.Namespace) -> int:
     store = ParquetStore(args.data_dir)
     pairs, timeframes = _selected(args)
-    results = dumps.ingest(args.source, store, pairs, timeframes)
+    try:
+        results = dumps.ingest(
+            args.source, store, pairs, timeframes,
+            allow_partial=getattr(args, "allow_partial", False),
+        )
+    except dumps.PartialIngestError as exc:
+        print(f"PARTIAL INGEST: {exc}", file=sys.stderr)
+        return 1
     if not results:
         print("no matching dump files found in source", file=sys.stderr)
         return 1

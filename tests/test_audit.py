@@ -128,7 +128,7 @@ def test_ingest_never_invents_a_candle(store, tmp_path):
         "".join(f"{base + h * 3600},100,101,99,100.5,5.0,7\n" for h in kept)
     )
 
-    ingest(csv, store)
+    ingest(csv, store, allow_partial=True)
     out = store.read(XBTEUR, H1)
 
     assert len(out) == len(kept), "ingest changed the row count"
@@ -176,7 +176,7 @@ def test_the_no_fill_check_would_catch_a_real_fill(tmp_path):
 
 def test_fixture_ingest_round_trips_row_for_row(store):
     """Every fixture CSV's line count must survive ingestion unchanged."""
-    ingest(FIXTURES, store)
+    ingest(FIXTURES, store, allow_partial=True)
     for pair, tf, name in [
         (XBTEUR, H1, "XBTEUR_60.csv"),
         (XBTEUR, D1, "XBTEUR_1440.csv"),
@@ -191,12 +191,12 @@ def test_audit_render_states_zero_filled_rows():
 
 
 def test_audit_store_covers_every_dataset(store):
-    ingest(FIXTURES, store)
+    ingest(FIXTURES, store, allow_partial=True)
     assert len(audit_store(store)) == 4
 
 
 def test_dump_rows_carry_null_vwap_after_ingest(store):
-    ingest(FIXTURES, store)
+    ingest(FIXTURES, store, allow_partial=True)
     df = store.read(XBTEUR, H1)
     assert df[schema.VWAP].isna().all()
     assert (df[schema.SOURCE] == "dump").all()

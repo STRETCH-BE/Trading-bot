@@ -4,8 +4,15 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import D1, FIXTURES, H1, XBTEUR
-from trading_bot.data.dumps import _gdrive_confirm_params, _gdrive_file_id, ingest
+from trading_bot.data.dumps import (
+    PartialIngestError,
+    _gdrive_confirm_params,
+    _gdrive_file_id,
+    ingest,
+)
 
 
 def _dump_files() -> list[Path]:
@@ -45,19 +52,26 @@ def test_ingest_from_extracted_directory_with_nested_folder(store, tmp_path):
 
 
 def test_ingest_partial_zip(store, tmp_path):
-    """Quarterly archives don't always contain every pair/timeframe file."""
+    """FINDING 8: a partial archive must FAIL unless --allow-partial is given."""
     archive = tmp_path / "partial.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.write(FIXTURES / "XBTEUR_60.csv", arcname="XBTEUR_60.csv")
-    results = ingest(archive, store)
-    assert results == {("XBTEUR", "1h"): 48}
+    with pytest.raises(PartialIngestError, match="3 of 4 requested"):
+        ingest(archive, store)
+
+    # what it DID find is still written (the store is append-only and
+    # idempotent), but the command refused to call the run a success
+    assert len(store.read(XBTEUR, H1)) == 48
     assert store.read(XBTEUR, D1).empty
+
+    results = ingest(archive, store, allow_partial=True)
+    assert results == {("XBTEUR", "1h"): 0}  # already present
 
 
 def test_ingest_single_csv(store, tmp_path):
     target = tmp_path / "XBTEUR_60.csv"
     shutil.copy(FIXTURES / "XBTEUR_60.csv", target)
-    results = ingest(target, store)
+    results = ingest(target, store, pairs=[XBTEUR], timeframes=[H1])
     assert results == {("XBTEUR", "1h"): 48}
 
 
@@ -82,8 +96,11 @@ def test_reingest_is_idempotent(store):
     assert len(store.read(XBTEUR, H1)) == 48
 
 
-def test_ingest_empty_directory_yields_nothing(store, tmp_path):
-    assert ingest(tmp_path, store) == {}
+def test_ingest_empty_directory_fails_loudly(store, tmp_path):
+    """FINDING 8: finding nothing is a failure, not an empty success."""
+    with pytest.raises(PartialIngestError, match="4 of 4 requested"):
+        ingest(tmp_path, store)
+    assert ingest(tmp_path, store, allow_partial=True) == {}
 
 
 def test_gdrive_file_id():

@@ -39,13 +39,13 @@ def test_ingest_selection_flags(tmp_path, capsys):
 def test_ingest_no_match_fails(tmp_path, capsys):
     code = cli.main(["ingest", str(tmp_path), "--data-dir", str(tmp_path / "p")])
     assert code == 1
-    assert "no matching dump files" in capsys.readouterr().err
+    assert "PARTIAL INGEST" in capsys.readouterr().err
 
 
 def test_validate_exit_codes(tmp_path, capsys):
     data_dir = tmp_path / "parquet"
     store = ParquetStore(data_dir)
-    ingest(FIXTURES, store)
+    ingest(FIXTURES, store, allow_partial=True)
     assert cli.main(["validate", "--data-dir", str(data_dir)]) == 0
     capsys.readouterr()
 

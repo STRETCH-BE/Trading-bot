@@ -53,6 +53,25 @@ def format_report(metrics: Metrics, title: str = "BACKTEST REPORT") -> str:
         _row("fees as % of capital", _magnitude(metrics.fees_pct_of_capital)),
     ]
 
+    if metrics.skipped_orders_excessive:
+        lines += [
+            "",
+            "!" * _WIDTH,
+            "!!  WARNING: ORDERS ARE BEING SKIPPED FOR FAILING EXCHANGE MINIMUMS"[
+                : _WIDTH - 2
+            ].ljust(_WIDTH - 2) + "!!",
+            f"!!  {metrics.skipped_orders} of {metrics.intended_orders} intended "
+            f"orders ({metrics.skipped_order_fraction * 100:.1f}%)".ljust(_WIDTH - 2)
+            + "!!",
+            "!!  At this account size the strategy cannot express its target".ljust(
+                _WIDTH - 2
+            ) + "!!",
+            "!!  position. These results are NOT the strategy you validated.".ljust(
+                _WIDTH - 2
+            ) + "!!",
+            "!" * _WIDTH,
+        ]
+
     if metrics.ends_with_open_position:
         lines += [
             "",

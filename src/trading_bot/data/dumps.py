@@ -13,6 +13,7 @@ or a single CSV.
 
 from __future__ import annotations
 
+import logging
 import re
 import zipfile
 from collections.abc import Iterable
@@ -25,6 +26,19 @@ from trading_bot.data.normalize import read_dump_csv
 from trading_bot.data.store import ParquetStore
 
 _CHUNK = 1 << 20
+
+# PK\x03\x04 normal archive, PK\x05\x06 empty, PK\x07\x08 spanned
+_ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+
+log = logging.getLogger(__name__)
+
+
+class DownloadError(RuntimeError):
+    """The downloaded bytes are not what was asked for. Nothing was written."""
+
+
+class PartialIngestError(RuntimeError):
+    """Some requested datasets were absent from the source archive."""
 
 _GDRIVE_ID_PATTERNS = (
     re.compile(r"drive\.google\.com/file/d/([\w-]+)"),
@@ -57,8 +71,29 @@ def download_dump(url: str, dest: str | Path, *, session: requests.Session | Non
         resp = sess.get(url, stream=True, timeout=60)
         resp.raise_for_status()
 
+    # FINDING 10: validate before writing. A Google Drive "can't scan for
+    # viruses" HTML page used to be saved as a .zip and the step reported
+    # success; the failure only surfaced much later, at ingest.
+    chunks = resp.iter_content(_CHUNK)
+    try:
+        first = next(chunks)
+    except StopIteration:
+        raise DownloadError(f"{url} returned an empty body — nothing to write") from None
+
+    if not first.startswith(_ZIP_MAGIC):
+        preview = first[:200].decode("utf-8", errors="replace").strip()
+        looks_html = first.lstrip()[:1] in (b"<", b"{")
+        raise DownloadError(
+            f"downloaded content is not a zip archive (magic bytes "
+            f"{first[:4]!r}, expected one of {_ZIP_MAGIC}). "
+            + ("It looks like HTML/JSON — probably a Google Drive interstitial "
+               "or an error page rather than the dump. " if looks_html else "")
+            + f"Nothing was written to {dest}. First bytes: {preview!r}"
+        )
+
     with resp, open(dest, "wb") as fh:
-        for chunk in resp.iter_content(_CHUNK):
+        fh.write(first)
+        for chunk in chunks:
             fh.write(chunk)
     return dest
 
@@ -81,12 +116,17 @@ def ingest(
     store: ParquetStore,
     pairs: Iterable[schema.Pair] = (),
     timeframes: Iterable[schema.Timeframe] = (),
+    *,
+    allow_partial: bool = False,
 ) -> dict[tuple[str, str], int]:
     """Ingest dump CSVs from ``source`` (zip archive, directory, or single CSV).
 
     Returns ``{(pair, timeframe): rows_added}`` for every dataset found.
-    Datasets not present in the source are skipped silently — Kraken ships
-    one archive per quarter, and not every quarter contains every file.
+
+    FINDING 8: a partial ingest used to report success. If three of four
+    requested datasets were absent from the archive, the command exited 0 and
+    the store was quietly incomplete. Every requested dataset must now be
+    found, unless ``allow_partial`` is set deliberately.
     """
     pairs = list(pairs) or list(schema.PAIRS.values())
     timeframes = list(timeframes) or list(schema.TIMEFRAMES.values())
@@ -123,6 +163,22 @@ def ingest(
         raise ValueError(
             f"{source.name} does not match any selected dataset "
             f"(expected one of: {expected})"
+        )
+
+    requested = {(p.kraken_name, tf.name) for p in pairs for tf in timeframes}
+    missing = sorted(requested - set(results))
+    if missing and not allow_partial:
+        raise PartialIngestError(
+            f"{len(missing)} of {len(requested)} requested dataset(s) were NOT "
+            f"found in {source}: {missing}. Refusing to report success on a "
+            f"partial ingest — the store would be silently incomplete. Pass "
+            f"--allow-partial if an incomplete archive is expected."
+        )
+    if missing:
+        log.warning(
+            "PARTIAL INGEST accepted via --allow-partial: %d of %d datasets "
+            "missing from %s: %s",
+            len(missing), len(requested), source, missing,
         )
     return results
 

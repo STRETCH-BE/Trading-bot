@@ -94,11 +94,17 @@ def from_ccxt(rows: Sequence[Sequence[float]]) -> pd.DataFrame:
         raise NormalizeError(
             f"expected >={len(CCXT_FIELDS)} fields per ccxt OHLCV row, got {raw.shape[1]}"
         )
+    if raw.shape[1] == len(REST_FIELDS):
+        # FINDING 13: raw Kraken REST rows carry vwap and count. Truncating to
+        # ccxt's 6 columns threw both away — vwap is the cross-check Kraken
+        # suggest for spotting pagination gaps, and count is our liquidity
+        # measure and the input to the Stage 4 liquidity floor. Keep them.
+        return from_kraken_rest(rows)
     if raw.shape[1] > len(CCXT_FIELDS):
         raise NormalizeError(
-            f"ccxt OHLCV rows should have {len(CCXT_FIELDS)} fields, got "
-            f"{raw.shape[1]}. Refusing to guess which to drop — if this is raw "
-            f"Kraken REST output use from_kraken_rest()."
+            f"OHLCV rows should have {len(CCXT_FIELDS)} (ccxt) or "
+            f"{len(REST_FIELDS)} (raw Kraken REST) fields, got {raw.shape[1]}. "
+            f"Refusing to guess which to drop."
         )
     raw.columns = CCXT_FIELDS
     raw["timestamp"] = pd.to_datetime(raw["timestamp_ms"], unit="ms", utc=True)

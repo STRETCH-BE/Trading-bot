@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from trading_bot.backtest.config import ConfigNotFoundError
 from trading_bot.data import schema
 
 DEFAULT_CONFIG_PATH = Path("config.yaml")
@@ -76,7 +77,12 @@ class VolTrendParams:
     def load(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> VolTrendParams:
         path = Path(path)
         if not path.exists():
-            return cls()
+            # FINDING 6: a mistyped path must never masquerade as success.
+            raise ConfigNotFoundError(
+                f"config file not found: {path.resolve()}. Refusing to fall "
+                f"back to defaults — that would silently run different "
+                f"parameters from the ones you validated."
+            )
         data = yaml.safe_load(path.read_text()) or {}
         section = (data.get("strategies") or {}).get("voltrend") or {}
         return cls.from_dict(section)

@@ -12,6 +12,10 @@ import yaml
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 
+class ConfigNotFoundError(FileNotFoundError):
+    """A config path was given but does not exist. Never silently defaulted."""
+
+
 @dataclass(frozen=True)
 class BacktestConfig:
     """All economics of the simulation. Frozen so a run cannot mutate its own terms."""
@@ -47,6 +51,11 @@ class BacktestConfig:
     # touch them, unless handed a one-shot HoldoutUnlock minted by an
     # explicit --unlock-holdout flag.
     holdout_start: str = "2026-01-01"
+
+    # FINDING 11: warn when this fraction of intended orders is skipped for
+    # failing an exchange minimum. A strategy that can never afford ordermin
+    # sits flat forever while the report shows only a counter.
+    max_skipped_order_fraction: float = 0.25
 
     # Annualisation factor for Sharpe/Sortino/CAGR. None -> inferred from the
     # median candle spacing (crypto trades every day, so 365 for daily).
@@ -106,9 +115,47 @@ class BacktestConfig:
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> BacktestConfig:
-        """Load the ``backtest:`` section of config.yaml (defaults if absent)."""
+        """Load the ``backtest:`` section of config.yaml.
+
+        FINDING 6: this used to return defaults when the path was missing, so a
+        typo'd path was indistinguishable from success and the bot could run
+        different economics from the backtest with no signal at all. It now
+        RAISES. Use ``defaults()`` if you genuinely want unconfigured values.
+        """
         path = Path(path)
         if not path.exists():
-            return cls()
+            raise ConfigNotFoundError(
+                f"config file not found: {path.resolve()}. Refusing to fall back "
+                f"to defaults — a mistyped path would silently run different fee "
+                f"and slippage assumptions from the ones you backtested. Pass a "
+                f"real path, or call BacktestConfig.defaults() deliberately."
+            )
         data = yaml.safe_load(path.read_text()) or {}
         return cls.from_dict(data.get("backtest", {}) or {})
+
+    @classmethod
+    def defaults(cls) -> BacktestConfig:
+        """Explicitly unconfigured values. Never reached by accident."""
+        return cls()
+
+    def banner(self, path: str | Path = DEFAULT_CONFIG_PATH) -> str:
+        """Printed on every start so the numbers in use are visible in the log."""
+        fm = self.fill_model
+        return "\n".join([
+            "=" * 68,
+            "RESOLVED CONFIGURATION",
+            "=" * 68,
+            f"  config path        : {Path(path).resolve()}",
+            f"  starting capital   : {self.starting_capital:,.2f}",
+            f"  maker / taker fees : {self.maker_fee_bps} / {self.taker_fee_bps} bps"
+            f"  (mode: {self.fee_mode})",
+            f"  slippage           : {self.slippage_bps} bps",
+            f"  effective fee rate : {fm.fee_rate():.6f}",
+            f"  effective slippage : {fm.slippage_rate:.6f}",
+            f"  min rebalance delta: {self.min_rebalance_delta}",
+            f"  ordermin / costmin : per-pair from schema.PAIRS "
+            f"(override: {self.min_order_units} / {self.costmin})",
+            f"  lot/tick rounding  : {'ON' if fm.apply_rounding else 'OFF'}",
+            f"  holdout start      : {self.holdout_start}",
+            "=" * 68,
+        ])

@@ -233,8 +233,12 @@ def test_repo_config_yaml_matches_declared_defaults():
     assert DonchianParams.load("config.yaml") == DonchianParams()
 
 
-def test_missing_config_falls_back_to_defaults(tmp_path):
-    assert DonchianParams.load(tmp_path / "absent.yaml") == DonchianParams()
+def test_missing_config_raises_rather_than_defaulting(tmp_path):
+    """FINDING 6: a mistyped path must never masquerade as success."""
+    from trading_bot.backtest.config import ConfigNotFoundError
+
+    with pytest.raises(ConfigNotFoundError, match="config file not found"):
+        DonchianParams.load(tmp_path / "absent.yaml")
 
 
 # --- purity ------------------------------------------------------------------
