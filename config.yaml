@@ -25,6 +25,19 @@ backtest:
   # (ordermin, costmin). Setting them here would override every pair with one
   # global value.
 
+# Stage 5b risk gate. Every order passes RiskGate.approve() or is rejected.
+# A daily-loss or max-drawdown breach WRITES the HALT file, so the halt
+# survives restart and only a human removes it.
+risk:
+  max_position_pct: 25.0
+  max_total_exposure_pct: 75.0
+  max_concurrent_positions: 2
+  daily_loss_limit_pct: 5.0
+  max_drawdown_pct: 20.0
+  max_order_size_pct: 30.0
+  max_orders_per_hour: 10
+  stale_data_max_seconds: 300.0
+
 strategies:
   donchian:
     entry_lookback: 20
