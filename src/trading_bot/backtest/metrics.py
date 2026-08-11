@@ -14,7 +14,11 @@ import numpy as np
 import pandas as pd
 
 from trading_bot.backtest.config import BacktestConfig
-from trading_bot.backtest.engine import BacktestResult, buy_and_hold_equity
+from trading_bot.backtest.engine import (
+    BacktestResult,
+    buy_and_hold_equity,
+    capital_matched_hold_equity,
+)
 from trading_bot.data import schema
 
 SECONDS_PER_YEAR = 365.25 * 24 * 3600
@@ -34,14 +38,20 @@ class Metrics:
     fees_pct_of_capital: float
 
     # mandated by CLAUDE.md: never report a strategy without its benchmark
-    buy_and_hold_return: float  # after one round trip of fees
-    excess_return: float  # strategy minus buy-and-hold
+    buy_and_hold_return: float  # 100% buy-and-hold, MTM (reported always)
+    excess_return: float  # strategy minus 100% buy-and-hold (pre-Amendment-4)
 
     starting_capital: float
     final_equity: float
     start: pd.Timestamp
     end: pd.Timestamp
     skipped_orders: int
+
+    # Amendment 4: THE gate benchmark. strategy_max_allocation x B&H with the
+    # remainder in cash. At allocation 1.0 these equal buy_and_hold_return /
+    # excess_return exactly (tested).
+    capital_matched_return: float = 0.0
+    excess_vs_capital_matched: float = 0.0
 
     # Equity is marked to market, so a position still open at the end has not
     # paid its exit cost yet. Surfaced rather than silently ignored.
@@ -106,6 +116,8 @@ def compute_metrics(result: BacktestResult, config: BacktestConfig | None = None
 
     bh_curve = buy_and_hold_equity(result.candles, config)
     bh_return = float(bh_curve.iloc[-1]) / start_capital - 1.0
+    cm_curve = capital_matched_hold_equity(result.candles, config)
+    cm_return = float(cm_curve.iloc[-1]) / start_capital - 1.0
 
     return Metrics(
         total_return=total_return,
@@ -120,6 +132,8 @@ def compute_metrics(result: BacktestResult, config: BacktestConfig | None = None
         fees_pct_of_capital=total_fees / start_capital,
         buy_and_hold_return=bh_return,
         excess_return=total_return - bh_return,
+        capital_matched_return=cm_return,
+        excess_vs_capital_matched=total_return - cm_return,
         starting_capital=start_capital,
         final_equity=final,
         start=start_ts,

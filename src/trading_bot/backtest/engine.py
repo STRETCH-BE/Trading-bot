@@ -324,6 +324,43 @@ def buy_and_hold_equity(candles: pd.DataFrame, config: BacktestConfig) -> pd.Ser
     return pd.Series(curve, index=candles[schema.TIMESTAMP].to_numpy(), name="buy_and_hold")
 
 
+def capital_matched_hold_equity(candles: pd.DataFrame, config: BacktestConfig) -> pd.Series:
+    """Amendment 4's benchmark: ``strategy_max_allocation`` x buy-and-hold,
+    remainder held in cash earning zero.
+
+    A strategy capped at 25% of equity compared against 100% buy-and-hold is
+    being tested on its allocation, not its skill (unpassable by construction
+    over a period where the asset rose ~160x — see PREREGISTRATION.md
+    Amendment 4). This benchmark holds the SAME budget the strategy is
+    allowed, entered with the same costs at the same first executable open,
+    marked to market with no synthetic exit.
+
+    Identity, tested: at ``strategy_max_allocation = 1.0`` this equals
+    ``buy_and_hold_equity`` exactly; in general
+    ``curve = (1 - alloc) * capital + alloc-scaled buy-and-hold``.
+    """
+    alloc = config.strategy_max_allocation
+    if len(candles) < 2:
+        return pd.Series(
+            [config.starting_capital] * len(candles),
+            index=candles[schema.TIMESTAMP].to_numpy(),
+            name="capital_matched_hold",
+        )
+
+    invested = config.starting_capital * alloc
+    reserve = config.starting_capital - invested
+    entry_px = float(candles[schema.OPEN].iloc[1]) * (1 + config.slippage_rate)
+    notional = invested / (1 + config.fee_rate)
+    units = notional / entry_px
+
+    closes = candles[schema.CLOSE].to_numpy(dtype=float)
+    curve = [config.starting_capital]  # flat during candle 0
+    curve.extend(reserve + units * closes[1:])
+    return pd.Series(
+        curve, index=candles[schema.TIMESTAMP].to_numpy(), name="capital_matched_hold"
+    )
+
+
 def round_trip_cost(config: BacktestConfig) -> float:
     """Fractional cost of one full round trip: fee+slippage in, fee+slippage out.
 

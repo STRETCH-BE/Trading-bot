@@ -100,11 +100,27 @@ def make_windows(n_candles: int, is_len: int, oos_len: int, step: int) -> list[W
     return windows
 
 
+class NoEvaluableComboError(ValueError):
+    """Every combo's warmup meets or exceeds the in-sample window.
+
+    Selection would be a pure fabrication, so the protocol refuses to select.
+    Reachable only by a grid/window mismatch that the preregistered configs
+    do not contain — but 'cannot happen' is not a definition, this is.
+    """
+
+
 @dataclass
 class GridPoint:
     params: DonchianParams
     sharpe: float
     total_return: float
+    # False when the combo could not be evaluated AT ALL in this window
+    # (warmup >= window length): its signals are all-zero by construction,
+    # not by evidence. FINDINGS.md §3: such combos used to score a fabricated
+    # Sharpe of 0.0 and win the argmax whenever every real score was
+    # negative. Ineligible combos carry -inf so that ANY argmax — including
+    # a caller's raw tuple max, not just select_best — cannot pick them.
+    eligible: bool = True
 
 
 def voltrend_grid() -> list[VolTrendParams]:
@@ -131,9 +147,28 @@ def search_window(
     """Backtest every combo on the in-sample slice, standalone (starts flat).
 
     Same engine, same costs as the out-of-sample run — no cost-free variant.
+
+    THE WARMUP RULE (repair of FINDINGS.md §3): a combo whose ``warmup``
+    meets or exceeds the window length cannot present any in-sample evidence
+    — its signals are all-zero by construction. It is returned INELIGIBLE
+    with sharpe and total_return of -inf, so no argmax anywhere can select
+    it. A combo that IS evaluable but happened never to trade keeps its real
+    score (a flat 0.0 is genuine evidence: "it would have sat out").
     """
+    n = len(is_candles)
     points = []
     for params in combos:
+        warmup = getattr(params, "warmup", 0)
+        if warmup >= n:
+            points.append(
+                GridPoint(
+                    params=params,
+                    sharpe=float("-inf"),
+                    total_return=float("-inf"),
+                    eligible=False,
+                )
+            )
+            continue
         result = backtest(
             is_candles,
             lambda c, p=params: signal_factory(c, p),
@@ -148,16 +183,30 @@ def search_window(
                 total_return=result.final_equity / config.starting_capital - 1.0,
             )
         )
+    if not any(p.eligible for p in points):
+        raise NoEvaluableComboError(
+            f"no combo in the grid is evaluable in a {n}-candle window; "
+            f"minimum warmup in the grid is "
+            f"{min(getattr(p.params, 'warmup', 0) for p in points)}"
+        )
     return points
 
 
 def select_best(points: Sequence[GridPoint], metric: str) -> GridPoint:
-    """Deterministic argmax; ties resolve to the earliest grid entry."""
+    """Deterministic argmax over ELIGIBLE points; ties resolve to the
+    earliest grid entry. Raises rather than select a combo that was never
+    evaluated (FINDINGS.md §3)."""
+    eligible = [p for p in points if p.eligible]
+    if not eligible:
+        raise NoEvaluableComboError("selection over a set with no evaluable combo")
     if metric == "sharpe":
-        return max(points, key=lambda p: p.sharpe)
-    if metric == "total_return":
-        return max(points, key=lambda p: p.total_return)
-    raise ValueError(f"unknown selection metric {metric!r}")
+        best = max(eligible, key=lambda p: p.sharpe)
+    elif metric == "total_return":
+        best = max(eligible, key=lambda p: p.total_return)
+    else:
+        raise ValueError(f"unknown selection metric {metric!r}")
+    assert best.sharpe != float("-inf"), "an ineligible combo escaped the filter"
+    return best
 
 
 SignalScheduler = Callable[[pd.DataFrame, list[ParamSpan], int], pd.Series]
