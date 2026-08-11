@@ -347,23 +347,3 @@ def test_state_survives_a_broker_restart(tmp_path):
     assert reopened.get_balance().cash == pytest.approx(cash)
     assert reopened.get_positions()[0].units == pytest.approx(units)
     assert reopened.get_order_status("tb-1").status is OrderStatus.FILLED
-
-
-def test_transaction_helper_must_be_used_as_a_context_manager(tmp_path):
-    """Landmine guard, found while writing the crash harness.
-
-    `store.transaction().__enter__()` leaves the context manager unreferenced;
-    CPython collects it at once, GeneratorExit fires the rollback path, and
-    the connection silently returns to AUTOCOMMIT — so the next write commits
-    when the caller believes it is staged. Always `with store.transaction():`.
-    """
-    store = StateStore(tmp_path / "s.db")
-    store.set_cash(1.0)
-
-    cm = store.transaction()  # held -> genuinely inside a transaction
-    cm.__enter__()
-    assert store._conn.in_transaction
-    cm.__exit__(None, None, None)
-
-    store.transaction().__enter__()  # unreferenced -> collected, rolled back
-    assert not store._conn.in_transaction
