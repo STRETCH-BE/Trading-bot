@@ -312,3 +312,56 @@ read as revising. The correction rests on outcome-independent arithmetic, and
 the amendment forecloses the only benefit a post-hoc revision could confer —
 a second look at strategy #2 — by barring that re-run in the scope clause
 above.
+
+## Amendment 5 — 2026-08-11
+
+**Binding record:** the commit that introduces this amendment. Parent is
+`57efb14` (FINDINGS.md). This is the terminal amendment.
+
+### Project concluded — ruling (b)
+
+The preregistered question is answered: **buy-and-hold wins on these assets
+at this horizon and cost structure.** Two strategies were tested under the
+gate; both failed criterion 1 on both pairs across every window
+configuration. The full record, the disclosure of the walk-forward selection
+defect found during post-hoc verification, the corrected degradation
+figures, and the unfixed defect register are in `FINDINGS.md` at `57efb14`.
+
+Rule 1 anticipated this outcome: "If both fail, the project concludes that
+buy-and-hold wins and no live trading occurs." Both tested strategies
+failed. The project concludes accordingly. **No live trading occurs.**
+
+### Slot accounting — final
+
+| Strategy | Outcome | Slot |
+|---|---|---|
+| Cross-sectional momentum | abandoned pre-result (Amendment 1) | none consumed |
+| #2 — volatility-targeted trend | FAILED (criteria 1 and 4) | 1 consumed |
+| — | — | **slot 2 of 2 BANKED UNSPENT** |
+
+**Banking the final slot was a deliberate ruling, not an oversight.** A
+candidate for it existed and was argued in the record (hold-by-default with
+a volatility-regime exit, mechanism stated before any backtest, 12-combo
+grid specified): it was declined at an honestly estimated ~25–30% pass
+probability, against a deployable benefit at current capital of
+approximately zero, and with the selection layer disqualified until
+repaired. The slot remains available to a future reopening of the project
+under the conditions in `FINDINGS.md` §9 (capital above ~EUR 500, a
+reconsidered dead-band, a repaired selection layer and capital-matched
+benchmark, or a different data source). Spending it before those conditions
+hold would contradict the reasoning recorded here.
+
+### Holdout — final
+
+The 2026-01-01 holdout was **never unlocked**. Rule 3's single permitted use
+expires with the project, unused. The holdout region contains zero candles
+(data ends 2025-12-31), so no unlock could have produced a result in any
+case.
+
+### Standing constraints on any revival
+
+A revival inherits this preregistration in full: the amendments are
+append-only, completed runs are final (Amendments 3 and 4), the grid cap is
+12, and the banked slot is single-use. The walk-forward selection layer and
+the capital-matched benchmark (FINDINGS.md §3 and F6) must be repaired and
+their repairs tested before any new gate run is trustworthy.
