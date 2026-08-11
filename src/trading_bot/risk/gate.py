@@ -9,6 +9,19 @@ A breach of the daily-loss or max-drawdown limit does not merely reject the
 order — it WRITES THE HALT FILE. That makes the halt survive a restart, which
 is what "require manual restart, never auto-resume" means in practice: the
 operator must delete the file by hand.
+
+Two scopes, and the distinction is load-bearing:
+
+* **Order-scoped** checks answer "may THIS order proceed?". They need an
+  ``Order`` and are meaningless without one. ``approve()`` runs them.
+* **Account-scoped** checks answer "is the ACCOUNT in a state where trading
+  should continue at all?". They need no order and must be evaluated every
+  cycle. ``check_account()`` runs them.
+
+Before the split, every limit lived behind ``approve()`` — so a strategy that
+generated no order (dead-band, ordermin, or simply flat) evaluated *nothing*.
+A bot could sit through a 50% drawdown on ten-day-old data, placing no orders,
+and no limit would ever fire. The limits were monitors in name only.
 """
 
 from __future__ import annotations
@@ -29,6 +42,11 @@ from trading_bot.risk.limits import AccountState, RiskLimits
 log = logging.getLogger(__name__)
 
 DEFAULT_HALT_FILE = Path("HALT")
+
+
+def _as_utc(now: datetime | pd.Timestamp | None) -> pd.Timestamp:
+    ts = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
+    return ts.tz_localize("UTC") if ts.tz is None else ts
 
 
 @dataclass(frozen=True)
@@ -81,6 +99,55 @@ class RiskGate:
 
     # --- the gate ------------------------------------------------------------
 
+    def _account_checks(self) -> tuple:
+        """Limits that describe the ACCOUNT. No order required.
+
+        Ordered by severity, not by cost: the conditions that destroy capital
+        are evaluated before the ones that merely make trading unwise. A cycle
+        that is both 50% down AND on stale data must report the drawdown,
+        because that is the one that halts.
+        """
+        return (
+            self._check_halt_file,
+            self._check_daily_loss,
+            self._check_max_drawdown,
+            self._check_stale_data,
+            self._check_current_total_exposure,
+            self._check_current_concurrent_positions,
+            self._check_order_rate,
+        )
+
+    def _order_checks(self) -> tuple:
+        """Limits that describe an ORDER. Meaningless without one."""
+        return (
+            self._check_known_pair,
+            self._check_no_leverage_or_short,
+            self._check_exchange_minimums,
+            self._check_order_size,
+            self._check_position_limit,
+            self._check_total_exposure,
+            self._check_concurrent_positions,
+        )
+
+    def check_account(
+        self,
+        state: AccountState,
+        *,
+        now: datetime | pd.Timestamp | None = None,
+    ) -> RiskDecision | None:
+        """Evaluate the account-scoped limits. Returns None when all pass.
+
+        Called once per cycle BEFORE any order exists, so these limits fire
+        even when the strategy wants to do nothing at all.
+        """
+        now = _as_utc(now)
+        for check in self._account_checks():
+            decision = check(None, state, now)
+            if decision is not None:
+                self._log_rejection(decision, None, state)
+                return decision
+        return None
+
     def approve(
         self,
         order: Order,
@@ -88,25 +155,17 @@ class RiskGate:
         *,
         now: datetime | pd.Timestamp | None = None,
     ) -> RiskDecision:
-        now = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
-        if now.tz is None:
-            now = now.tz_localize("UTC")
+        """Order-scoped approval.
+
+        Still runs the account-scoped checks too. ``check_account`` having run
+        earlier in the cycle does not make them redundant here: ``approve`` is
+        the only thing standing between a caller and the broker, and it must
+        be safe for a caller that never called ``check_account``.
+        """
+        now = _as_utc(now)
         passed: list[str] = []
 
-        for check in (
-            self._check_halt_file,
-            self._check_known_pair,
-            self._check_no_leverage_or_short,
-            self._check_stale_data,
-            self._check_exchange_minimums,
-            self._check_order_size,
-            self._check_position_limit,
-            self._check_total_exposure,
-            self._check_concurrent_positions,
-            self._check_daily_loss,
-            self._check_max_drawdown,
-            self._check_order_rate,
-        ):
+        for check in (*self._account_checks(), *self._order_checks()):
             decision = check(order, state, now)
             if decision is not None:
                 self._log_rejection(decision, order, state)
@@ -306,6 +365,41 @@ class RiskGate:
             )
         return None
 
+    def _check_current_total_exposure(self, order, state, now) -> RiskDecision | None:
+        """Account-scoped twin of ``_check_total_exposure``.
+
+        That one asks "would this BUY push exposure over the cap" and returns
+        None for sells and for no-order cycles. This one asks "is exposure
+        over the cap RIGHT NOW", which price drift alone can cause with no
+        order involved — the case nothing was watching.
+        """
+        pct = state.total_exposure() / state.equity * 100.0 if state.equity > 0 else 0.0
+        if pct > self.limits.max_total_exposure_pct:
+            return RiskDecision(
+                None, True, "max_total_exposure_pct", actual=pct,
+                limit_value=self.limits.max_total_exposure_pct,
+                message=(
+                    f"current total exposure is {pct:.2f}% of equity, above "
+                    f"{self.limits.max_total_exposure_pct}% — no order caused "
+                    f"this, price movement did"
+                ),
+            )
+        return None
+
+    def _check_current_concurrent_positions(self, order, state, now) -> RiskDecision | None:
+        """Account-scoped twin of ``_check_concurrent_positions``."""
+        count = state.open_position_count()
+        if count > self.limits.max_concurrent_positions:
+            return RiskDecision(
+                None, True, "max_concurrent_positions", actual=count,
+                limit_value=self.limits.max_concurrent_positions,
+                message=(
+                    f"holding {count} concurrent positions, above the "
+                    f"{self.limits.max_concurrent_positions} limit"
+                ),
+            )
+        return None
+
     def _check_daily_loss(self, order, state, now) -> RiskDecision | None:
         loss = state.daily_loss_pct()
         if loss >= self.limits.daily_loss_limit_pct:
@@ -366,11 +460,14 @@ class RiskGate:
 
     # --- logging -------------------------------------------------------------
 
-    def _log_rejection(self, d: RiskDecision, order: Order, state: AccountState) -> None:
+    def _log_rejection(
+        self, d: RiskDecision, order: Order | None, state: AccountState
+    ) -> None:
         log.warning(
-            "RISK REJECT limit=%s actual=%s limit_value=%s | order=%s | "
+            "RISK REJECT scope=%s limit=%s actual=%s limit_value=%s | order=%s | "
             "equity=%.2f cash=%.2f positions=%s prices=%s exposure=%.2f "
             "peak=%.2f day_start=%.2f | %s",
+            "order" if order is not None else "account",
             d.limit, d.actual, d.limit_value, order, state.equity, state.cash,
             state.positions, state.prices, state.total_exposure(),
             state.peak_equity, state.day_start_equity, d.message,

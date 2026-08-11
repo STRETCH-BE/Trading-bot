@@ -142,6 +142,23 @@ $BOT --reconcile-only
 Exit `0` they agree, `1` they do not. If they disagree, halt and stop before
 doing anything else; do not let another cycle trade on a book you do not trust.
 
+The running bot also reconciles **every cycle** (`--reconcile-every-cycles`,
+default 1). A mismatch writes the HALT file and stops the process with exit 2,
+so drift is caught whenever it appears rather than only at the next restart.
+
+### Why did a cycle refuse to trade?
+
+Account-level limits — drawdown, daily loss, staleness, total exposure,
+concurrent positions, order rate — are evaluated **every cycle, before the
+strategy is consulted**, so they fire even when the bot wants to do nothing.
+
+Two different outcomes, and the decisions table distinguishes them:
+
+- `action_taken = 'account_blocked'` — the cycle stopped, no HALT file, the
+  service keeps running and will retry next cycle. Stale data and exposure
+  breaches land here.
+- exit 2 + a HALT file — a drawdown or daily-loss breach. Needs a human.
+
 ### What would it do right now?
 
 Runs a full cycle — settle, reconcile, data, signal, sizing, risk approval —
@@ -266,6 +283,7 @@ expect to exist and which does not.
 | **Automatic flatten** | Nothing ever sells a position to protect you. A daily-loss or drawdown breach halts *trading* and leaves the position open. If you want out of a real market, you place that order yourself. | not planned; needs an explicit decision |
 | **Alerting / paging** | The heartbeat timer writes to the journal and exits non-zero. Nothing emails, pages, or messages anyone. If nobody reads the journal, nobody finds out. | Stage 6d |
 | **Automatic data updates** | The bot reads whatever parquet is in `--data-dir`. It does not fetch new candles. Stale data trips the freshness check and the cycle refuses to trade — which looks like a broken bot. Run `tbot-data update` yourself. | not scheduled; no timer ships for it |
+| **Alerting on an account-blocked cycle** | A stale-data or exposure breach stops the cycle and writes an `account_blocked` decision row, but does not write the HALT file and does not page anyone. The heartbeat stays fresh because the cycle completed. Check the decisions table. | Stage 6d |
 | **A live-market kill** | `touch HALT` stops *this bot* from placing orders. It has no effect on orders already resting at an exchange (there are none today, because there is no live broker). | with Stage 6b |
 | **Config hot-reload** | `config.yaml` is read once at startup. Editing it does nothing until you restart the service. | not planned |
 | **Log shipping / retention beyond the box** | Logs live on this VM only. If the VM is lost, so are they. | not planned |

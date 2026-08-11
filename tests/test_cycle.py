@@ -24,7 +24,13 @@ PRICE = 100.0
 # The interaction between the shipped RiskLimits() and the strategy's target is
 # tested on its own, below, under the real defaults.
 PERMISSIVE = RiskLimits(
-    max_position_pct=100.0, max_total_exposure_pct=100.0, max_order_size_pct=100.0
+    max_position_pct=100.0, max_total_exposure_pct=100.0, max_order_size_pct=100.0,
+    # These tests simulate "the next cycle" by advancing `now` while the candle
+    # fixture stays put, which is genuinely stale data — and since the account
+    # checks became unconditional, the real 300s limit would fire on every
+    # multi-cycle test. Freshness has its own cycle-level test in
+    # tests/test_risk_cycle.py, at the shipped limit.
+    stale_data_max_seconds=30 * 86400.0,
 )
 
 

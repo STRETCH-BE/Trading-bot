@@ -95,6 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--interval-seconds", type=float, default=86_400.0)
     p.add_argument("--settle-delay-seconds", type=float, default=60.0,
                    help="wait after candle close before acting, so it finalises")
+    p.add_argument("--reconcile-every-cycles", type=int, default=1,
+                   help="reconcile the books against the broker every N cycles "
+                        "(default 1: every cycle)")
     p.add_argument("--halt-file", type=Path, default=Path("HALT"))
     p.add_argument("--log-level", default="INFO")
     p.add_argument("--log-file", type=Path, default=None,
@@ -191,11 +194,15 @@ def main(argv: list[str] | None = None) -> int:
             schema.PAIRS[pair], schema.TIMEFRAMES["1d"]
         ),
         pairs=pairs, dry_run=args.dry_run,
+        reconcile_every_cycles=args.reconcile_every_cycles,
     )
 
     signal.signal(signal.SIGTERM, _handle_sigterm)
     signal.signal(signal.SIGINT, _handle_sigterm)
 
+    # Reconciliation is driven by ctx.reconcile_every_cycles (default: every
+    # cycle). `first` only forces the boot cycle to reconcile regardless of
+    # how that interval is configured.
     first = True
     while True:
         try:

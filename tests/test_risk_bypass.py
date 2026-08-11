@@ -261,8 +261,18 @@ def test_a_rejected_decision_carries_no_approval(gate, tmp_path):
 
 
 def test_approval_records_which_checks_it_passed(gate):
+    """An approval must name every check it cleared — all of them, not a count.
+
+    Asserted against the gate's own check list rather than a magic number, so
+    adding a limit cannot silently leave this test passing while the approval
+    records fewer checks than were actually run.
+    """
     approved = a_real_approval(gate)
+    expected = [
+        c.__name__.removeprefix("_check_")
+        for c in (*gate._account_checks(), *gate._order_checks())
+    ]
+    assert list(approved.checks_passed) == expected
     assert "halt_file" in approved.checks_passed
     assert "no_leverage_or_short" in approved.checks_passed
     assert "max_drawdown" in approved.checks_passed
-    assert len(approved.checks_passed) == 12

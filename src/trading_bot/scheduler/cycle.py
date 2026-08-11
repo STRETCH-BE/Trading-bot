@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -60,6 +60,8 @@ class CycleResult:
     decisions: int = 0
     halted: bool = False
     reason: str = ""
+    equity: float | None = None
+    account_rejection: str = ""
 
     @property
     def ok(self) -> bool:
@@ -81,6 +83,13 @@ class CycleContext:
     pairs: tuple[str, ...] = ("XBTEUR",)
     dry_run: bool = False
     notifier: Callable[[str, str], None] | None = None
+    # Reconcile every N cycles. 1 = every cycle, which is the default because
+    # the alternative shipped as "once, at boot": a bot running for months
+    # compared its books to the venue exactly one time. Drift that appeared at
+    # cycle 2 was never detected. Raise this only if reconciliation becomes
+    # expensive against a real venue, and never past a handful of cycles.
+    reconcile_every_cycles: int = 1
+    _cycles_since_reconcile: int = field(default=0, repr=False)
 
     def notify(self, kind: str, message: str) -> None:
         log.info("NOTIFY[%s] %s", kind, message)
@@ -127,8 +136,10 @@ def run_cycle(
             f"@ {state.avg_fill_price:.2f} ({state.status})",
         )
 
-    # --- 2. reconcile
-    if reconcile_first:
+    # --- 2. reconcile. Every cycle by default, NOT once at boot.
+    ctx._cycles_since_reconcile += 1
+    if reconcile_first or ctx._cycles_since_reconcile >= ctx.reconcile_every_cycles:
+        ctx._cycles_since_reconcile = 0
         report = reconcile(ctx.local, ctx.broker)
         result.reconciled = True
         if not report.agrees:
@@ -138,16 +149,100 @@ def run_cycle(
             result.reason = "reconciliation mismatch"
             raise CycleHalted(report.render())
 
+    # --- 3. data for every pair, fetched BEFORE any risk evaluation because
+    # the account state needs prices and a freshness timestamp.
+    candles_by_pair = {pair: ctx.candles_for(pair) for pair in ctx.pairs}
+    usable = {
+        pair: df for pair, df in candles_by_pair.items()
+        if df is not None and not df.empty
+    }
     for pair in ctx.pairs:
-        _run_pair(ctx, pair, now, result)
+        if pair not in usable:
+            _record(ctx, result, pair, 0.0, 0.0, "none", "no candles available", now)
+    if not usable:
+        log.warning("cycle %s: no usable data for any pair", result.cycle_id)
+        return result
 
-    ctx.broker.mark_to_market(now) if hasattr(ctx.broker, "mark_to_market") else None
+    prices = {pair: float(df[schema.CLOSE].iloc[-1]) for pair, df in usable.items()}
+
+    # --- 4. record equity to the LOCAL store, from the bot's OWN books.
+    # This is what makes peak_equity and day_start_equity meaningful. It was
+    # previously written only to the venue store by an optional broker method,
+    # so the local history was always empty and drawdown was always 0%.
+    equity = _record_equity(ctx, now, prices)
+    result.equity = equity
+
+    # --- 5. account-scoped risk, evaluated whether or not anything wants to
+    # trade. A flat strategy used to skip every limit in the system.
+    account = _account_state(ctx, now, prices, usable, equity)
+    breach = ctx.gate.check_account(account, now=now)
+    if breach is not None:
+        result.rejections.append(breach.limit)
+        result.account_rejection = breach.limit
+        ctx.notify("account_risk", f"{breach.limit}: {breach.message}")
+        for pair in usable:
+            _record(ctx, result, pair, _fraction(account, pair), 0.0, "account_blocked",
+                    f"account risk[{breach.limit}] {breach.message}", now)
+        if breach.halted:
+            result.halted = True
+            result.reason = breach.limit
+            raise CycleHalted(breach.message)
+        log.warning("cycle %s: account risk %s — no order logic will run",
+                    result.cycle_id, breach.limit)
+        return result
+
+    # --- 6. per-pair order logic
+    for pair in usable:
+        _run_pair(ctx, pair, now, result, usable[pair], account)
+
     log.info(
-        "cycle %s done: settled=%d submitted=%d decisions=%d rejections=%d",
-        result.cycle_id, result.settled, result.orders_submitted,
+        "cycle %s done: equity=%.2f settled=%d submitted=%d decisions=%d rejections=%d",
+        result.cycle_id, equity, result.settled, result.orders_submitted,
         result.decisions, len(result.rejections),
     )
     return result
+
+
+def _record_equity(ctx: CycleContext, now: pd.Timestamp, prices: dict) -> float:
+    """Snapshot the bot's OWN equity into its OWN store, every cycle.
+
+    Deliberately computed from ``ctx.local`` — the bot's belief — not from the
+    broker and not from the venue. The broker's view is what reconciliation
+    checks this against; using it here would make the drawdown limit trust the
+    very thing it is meant to be independent of.
+
+    No hasattr guard: a broker that cannot support this does not get to make
+    the drawdown and daily-loss limits silently inert.
+    """
+    cash = ctx.local.get_cash()
+    value = sum(p.units * prices.get(p.pair, 0.0) for p in ctx.local.positions())
+    ctx.local.record_equity(now, cash, value)
+    return cash + value
+
+
+def _account_state(
+    ctx: CycleContext, now: pd.Timestamp, prices: dict, candles: dict, equity: float
+) -> AccountState:
+    """The account as the BOT sees it. Never hand-constructed in tests."""
+    positions = {p.pair: p.units for p in ctx.local.positions()}
+    # The most stale pair governs freshness: trading on one fresh feed while
+    # another is days behind is exactly the situation the limit exists for.
+    latest = min(df[schema.TIMESTAMP].iloc[-1] for df in candles.values())
+    return AccountState(
+        equity=equity,
+        cash=ctx.local.get_cash(),
+        positions=positions,
+        prices=prices,
+        peak_equity=_peak_equity(ctx, equity),
+        day_start_equity=_day_start_equity(ctx, now, equity),
+        latest_data_time=latest,
+        recent_order_times=_recent_order_times(ctx),
+    )
+
+
+def _fraction(account: AccountState, pair: str) -> float:
+    value = account.positions.get(pair, 0.0) * account.prices.get(pair, 0.0)
+    return value / account.equity if account.equity > 0 else 0.0
 
 
 def _settle(ctx: CycleContext, now: pd.Timestamp) -> list:
@@ -184,16 +279,12 @@ def _mirror_fills_locally(ctx: CycleContext, client_order_id: str) -> None:
 
 
 def _run_pair(
-    ctx: CycleContext, pair: str, now: pd.Timestamp, result: CycleResult
+    ctx: CycleContext, pair: str, now: pd.Timestamp, result: CycleResult,
+    candles: pd.DataFrame, account: AccountState,
 ) -> None:
-    # --- 3. data
-    candles = ctx.candles_for(pair)
-    if candles is None or candles.empty:
-        _record(ctx, result, pair, 0.0, 0.0, "none", "no candles available", now)
-        return
     latest = candles[schema.TIMESTAMP].iloc[-1]
 
-    # --- 5. signal (pure)
+    # --- signal (pure)
     signal = float(ctx.signal_fn(candles).iloc[-1])
     result.signal = signal
 
@@ -229,18 +320,19 @@ def _run_pair(
 
     order = translation.orders[0]
 
-    # --- 7. risk gate. Nothing reaches the broker without an ApprovedOrder.
-    account = AccountState(
+    # --- risk gate. Nothing reaches the broker without an ApprovedOrder.
+    # The account-scoped fields come from the cycle-level state built in
+    # run_cycle; only the order-scoped view of THIS pair is refreshed here,
+    # from the broker's post-settlement position.
+    order_state = replace(
+        account,
         equity=portfolio.equity(price),
         cash=cash,
         positions=positions,
-        prices={pair: price},
-        peak_equity=_peak_equity(ctx, portfolio.equity(price)),
-        day_start_equity=_day_start_equity(ctx, now, portfolio.equity(price)),
+        prices={**account.prices, pair: price},
         latest_data_time=latest,
-        recent_order_times=_recent_order_times(ctx),
     )
-    decision = ctx.gate.approve(order, account, now=now)
+    decision = ctx.gate.approve(order, order_state, now=now)
     if decision.rejected:
         result.rejections.append(decision.limit)
         ctx.notify("risk_rejection", f"{decision.limit}: {decision.message}")
@@ -291,8 +383,29 @@ def _peak_equity(ctx: CycleContext, current: float) -> float:
 
 
 def _day_start_equity(ctx: CycleContext, now: pd.Timestamp, current: float) -> float:
+    """Equity as of the START of today.
+
+    Preference order, and the ordering is the whole point:
+
+    1. the LAST snapshot taken before today began — i.e. yesterday's close;
+    2. failing that, the first snapshot taken today;
+    3. failing that, the current equity (a genuinely fresh account).
+
+    Taking (2) first, which is the obvious implementation, makes the limit
+    unfireable at the cadence this bot actually runs. The default interval is
+    one day, so the first snapshot of the day IS the current cycle: day_start
+    would equal current equity and ``daily_loss_pct()`` would return 0.0 on
+    every cycle forever. Yesterday's close is both the correct meaning of
+    "since the day started" and the only reading that works at daily cadence.
+    """
     day = now.normalize()
-    for row in ctx.local.equity_history():
+    history = ctx.local.equity_history()
+
+    before = [r for r in history if pd.Timestamp(r["timestamp"]) < day]
+    if before:
+        return float(before[-1]["total_equity"])
+
+    for row in history:
         if pd.Timestamp(row["timestamp"]) >= day:
             return float(row["total_equity"])
     return current
