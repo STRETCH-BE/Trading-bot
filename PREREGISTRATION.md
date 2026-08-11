@@ -365,3 +365,113 @@ append-only, completed runs are final (Amendments 3 and 4), the grid cap is
 12, and the banked slot is single-use. The walk-forward selection layer and
 the capital-matched benchmark (FINDINGS.md §3 and F6) must be repaired and
 their repairs tested before any new gate run is trustworthy.
+
+## Amendment 6 — 2026-08-11
+
+**Binding record:** the commit that introduces this amendment. Parent is
+`9cb57ef` (Amendment 5). Committed **alone and before any strategy #3 code
+exists** — verifiable with `git log` and `git show`: at this commit the
+repository contains no mean-reversion implementation.
+
+### Reopening — condition invoked
+
+Amendment 5 concluded the project and barred spending the banked slot
+"before those conditions hold" (FINDINGS.md §9). This amendment reopens the
+project under **§9 condition 3**, which is satisfied as a precondition of
+the run itself:
+
+- the walk-forward selection layer (FINDINGS.md §3: `search_window` /
+  `select_best`) will be repaired and regression-tested **before** the gate
+  runs — no combo whose warmup meets or exceeds the in-sample window may
+  enter selection, so no fabricated 0.0 Sharpe can win an argmax;
+- the capital-matched benchmark (Amendment 4; defect F6) will be
+  implemented and tested **before** the gate runs, and criterion 1 is
+  evaluated against it.
+
+If either repair is not in place and tested, the gate run is void and the
+slot is NOT consumed. Once the gate runs, **slot 2 of 2 is CONSUMED,
+whatever the outcome. There is no slot 3.**
+
+### Strategy #3 designation: mean reversion, long-or-flat
+
+Filling the final slot: **mean reversion on daily XBTEUR and ETHEUR** —
+the "buy dips, sell recovery" hypothesis. Mechanism stated before any
+backtest: liquidation cascades and panic selling push price transiently
+below short-horizon fair value; a buyer of K-sigma dips who exits on
+reversion to the mean harvests the rebound. This is the mirror of the two
+failed trend strategies: they bought strength; this buys weakness.
+
+### Specification, fixed before any result
+
+All choices below are frozen now. Nothing may be revised after a number is
+seen (rule 4).
+
+- **Signal** (pure function, candles in → target in {0.0, 1.0}, no I/O,
+  no look-ahead; the signal at close of bar t uses data through bar t
+  only; the engine fills at the open of t+1 as always):
+  - MA(t) = simple moving average of close over the trailing N bars,
+    **including bar t**; σ(t) = sample standard deviation (ddof=1) of the
+    same N closes. Both undefined during warmup.
+  - **K is in standard deviations** (chosen and fixed now, per the
+    instruction to pick one). E is in the same units.
+  - ENTRY: flat and close(t) < MA(t) − K·σ(t) → target 1.0.
+  - EXIT: long and close(t) ≥ MA(t) − E·σ(t) → target 0.0.
+    E = 0.0 therefore means "exit when close reaches the MA".
+  - Otherwise hold the previous target (hysteresis — the strategy is a
+    two-state machine; position state carries across walk-forward
+    boundaries exactly as Donchian's did, via a parameter schedule).
+  - Warmup = N bars; signal 0.0 during warmup, never NaN.
+  - Long-or-flat, no leverage, no shorting.
+- **Grid — exactly 12 combinations** (rule 2 cap, at the limit, not over):
+  N ∈ {10, 20, 30} × K ∈ {1.0, 1.5} × E ∈ {0.0, 0.5}. No fourth axis.
+- **Windows:** the same three configurations as strategies #1 and #2 —
+  180/60 (main), 90/30, 360/90. Selection metric: in-sample Sharpe, as
+  before. Grid steps for the stability criterion: N: 10, K: 0.5, E: 0.5.
+- **Allocation:** the run executes at `strategy_max_allocation = 0.25`,
+  the deployed configuration. Criterion 1's benchmark is capital-matched
+  at the same 0.25 (Amendment 4). Uncapped buy-and-hold BTC is REPORTED
+  alongside on every output, never used as the pass/fail benchmark.
+- **Costs:** unchanged from rule 5 — taker 26 bps, slippage 5 bps,
+  `min_rebalance_delta` 0.05 (inert for a binary strategy: entries move
+  0.25 of equity; full exits are exempt).
+- **Data:** real Kraken daily, liquidity floors 2013-12-03 (XBT) /
+  2016-01-27 (ETH), end strictly before 2026-01-01. **The holdout stays
+  sealed.** It does not unlock on this run regardless of outcome.
+- **Shuffle control:** same construction and pipeline as before, seeds
+  fixed now: XBTEUR = 42, ETHEUR = 43 (single draw per pair, same n=1
+  limitation as prior runs, on record).
+- **Output:** `results/4c_strategy3_meanrev_<UTCstamp>_<githash>.json`
+  with per-combo, per-window, per-asset numbers and an explicit PASS/FAIL
+  per criterion. (Prefix `4c_strategy3_meanrev` per the instruction; note
+  the prior gate runs used a `4a_` prefix — recorded to prevent confusion.)
+
+### Gate criteria for this run (mapping to rule 5 + Amendment 4)
+
+1. **Reporting:** capital-matched benchmark AND uncapped buy-and-hold BTC
+   on every report (requirement, not a pass/fail test).
+2. **Shuffle:** selected OOS Sharpe − shuffled OOS Sharpe ≥ 0.4 (rule 5.3).
+3. **Degradation:** OOS Sharpe ÷ mean in-sample Sharpe of selected combos
+   > 0.5, computed on the REPAIRED selection layer (rule 5.2).
+4. **Excess:** concatenated OOS excess return over the CAPITAL-MATCHED
+   benchmark, after all costs, must be positive (rule 5.1 as amended).
+5. **Window robustness:** criterion 4 must hold in ≥ 2 of 3 window
+   configurations (rule 5.4).
+6. **Parameter stability** (rule 5.5): recorded honestly as follows. On a
+   3×2×2 grid no axis CAN move more than 2 grid steps (max moves: N = 2
+   steps, K = 1, E = 1), so the ">2 steps in <30% of transitions" test is
+   **vacuously passable and will be reported as VACUOUS, not as evidence
+   of stability** — extending Amendment 3's precedent. The fraction of
+   boundaries where any parameter changed is reported descriptively
+   alongside.
+
+**PASS requires criteria 2, 3, 4, 5 all true.** Criterion 6 cannot
+contribute a pass on this grid and can only be reported. `live_approved`
+additionally requires rule 6 (holdout), which this run cannot trigger.
+
+### Bindings restated
+
+No re-run with a modified grid, window, or universe after seeing the
+result. No cherry-picking a window configuration. The outcome — pass or
+fail — is recorded as a further amendment. The €100 executability finding
+for ETHEUR (unopenable below ~€101 at 0.25) is reported with the results;
+the gate itself runs at the standard 10,000 starting capital as before.
