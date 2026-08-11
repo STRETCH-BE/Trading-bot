@@ -250,3 +250,65 @@ reachable on one axis alone. Parameters changed at 49/70 and 41/57 boundaries.
 Supporting analyses, report-only, no selection and no slot consumed:
 `results/4b_strategy2_voltrend_20260810T230858Z_c5c823e.json` (sensitivity),
 `results/4c_strategy2_voltrend_20260810T231014Z_c5c823e.json` (EUR 100).
+
+## Amendment 4 — 2026-08-11
+
+**Binding record:** the commit that introduces this amendment. Parent is
+`c4c634a` (Stage 7 deploy artifacts). Committed **alone and before any
+re-run of 4a**, verifiable with `git log` and `git show`.
+
+### Benchmark redefinition, forward-looking only
+
+Criterion 1 (positive excess over buy-and-hold) and criterion 4 compare a
+strategy against **100% buy-and-hold**. For any strategy capped below 100%
+allocation this is **unpassable by construction** over a period where the
+asset rose ~160x.
+
+This is demonstrable from arithmetic alone and is independent of any result:
+a portfolio holding at most `k` of equity, with the remainder in cash earning
+zero, has terminal wealth bounded below a portfolio holding 1.0 of the same
+asset whenever that asset appreciates. No skill in timing recovers a 160x
+gap from a 0.25 cap. The criterion measured **allocation, not strategy**. The
+defect would have been equally present had a strategy passed it.
+
+**Benchmark redefined for FUTURE runs to CAPITAL-MATCHED:**
+
+    benchmark = strategy_max_allocation x buy-and-hold
+              + (1 - strategy_max_allocation) x cash earning zero
+
+Criteria **2, 3 and 5 are ratio-based and unchanged**. Sharpe, the
+degradation ratio and the shuffled-returns control are invariant under a
+uniform rescaling of position size — mean and standard deviation both scale
+by `k`, so the ratio cancels — and they therefore never carried this defect.
+
+### SCOPE — this redefinition does NOT apply retroactively
+
+Run `4a_strategy2_voltrend_20260810T230133Z_e611481` executed at an
+**effective allocation of 1.0**: `strategy_max_allocation` did not exist at
+that commit, and the order translator's `max_allocation` defaulted to 1.0.
+Criterion 1 was therefore a **fair test at 100% vs 100%**, and strategy #2
+failed it by **-7,219 pp (XBTEUR)** and **-16,833 pp (ETHEUR)**.
+
+That result **stands**. This redefinition:
+
+- does **not** rehabilitate it;
+- does **not** permit a re-run of strategy #2 under the new benchmark;
+- does **not** restore its consumed slot.
+
+### Slot status
+
+| Strategy | Outcome | Slot |
+|---|---|---|
+| Cross-sectional momentum | abandoned pre-result (Amendment 1) | **none consumed** |
+| #2 — volatility-targeted trend | **FAILED** (criteria 1 and 4) | **1 consumed** |
+
+**1 of 2 consumed. 1 slot remains.**
+
+### Ruling on this amendment
+
+**Does not itself consume a slot.** It corrects a defective criterion for
+future use and explicitly preserves the failed result it might otherwise be
+read as revising. The correction rests on outcome-independent arithmetic, and
+the amendment forecloses the only benefit a post-hoc revision could confer —
+a second look at strategy #2 — by barring that re-run in the scope clause
+above.
