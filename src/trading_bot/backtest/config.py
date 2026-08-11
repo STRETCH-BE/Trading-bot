@@ -57,6 +57,13 @@ class BacktestConfig:
     # sits flat forever while the report shows only a counter.
     max_skipped_order_fraction: float = 0.25
 
+    # RISK BUDGET. A strategy target of 1.0 means "fully allocated within my
+    # budget", NOT "all of equity": the equity fraction actually held is
+    # target * strategy_max_allocation. Defaults to 0.25 to match the shipped
+    # max_position_pct, so a full strategy signal is exactly at the risk cap
+    # rather than being rejected by it.
+    strategy_max_allocation: float = 0.25
+
     # Annualisation factor for Sharpe/Sortino/CAGR. None -> inferred from the
     # median candle spacing (crypto trades every day, so 365 for daily).
     periods_per_year: float | None = None
@@ -70,6 +77,11 @@ class BacktestConfig:
         for name in ("maker_fee_bps", "taker_fee_bps", "slippage_bps"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must not be negative")
+        if not 0.0 < self.strategy_max_allocation <= 1.0:
+            raise ValueError(
+                f"strategy_max_allocation must be in (0, 1]; above 1.0 would "
+                f"imply leverage, got {self.strategy_max_allocation!r}"
+            )
         if not 0.0 <= self.min_rebalance_delta < 1.0:
             raise ValueError(
                 f"min_rebalance_delta must be in [0, 1), got {self.min_rebalance_delta!r}"

@@ -36,6 +36,11 @@ GOLDEN = Path(__file__).parent / "golden" / "equivalence_baseline.json"
 DATA_DIR = Path("data/parquet")
 FLOOR_RULE = FloorRule(min_median_trades=500.0, max_missing=1, window_days=30)
 
+# strategy_max_allocation is pinned to 1.0 here ON PURPOSE. The golden
+# baseline was captured before the risk-budget mapping existed, and this
+# test asks 'did the Stage 5a refactor change any number' — not 'have the
+# allocation semantics ever changed'. Letting the new 0.25 default leak in
+# would turn a refactor proof into a semantics test and destroy both.
 CONFIG = BacktestConfig(
     starting_capital=10_000.0,
     maker_fee_bps=16.0,
@@ -44,6 +49,7 @@ CONFIG = BacktestConfig(
     slippage_bps=5.0,
     min_rebalance_delta=0.05,
     periods_per_year=365.0,
+    strategy_max_allocation=1.0,
 )
 
 pytestmark = pytest.mark.skipif(

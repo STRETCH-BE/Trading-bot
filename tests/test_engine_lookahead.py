@@ -15,6 +15,18 @@ from trading_bot.data import schema
 from .synthetic import make_candles
 
 
+def cfg(**kw) -> BacktestConfig:
+    """A config with the risk-budget mapping pinned to identity.
+
+    Execution TIMING is what is under test. Pinning the mapping keeps the
+    look-ahead profit/loss magnitudes below meaningful — a 0.25 scaling would
+    shrink them without changing the property being proved, and the assertion
+    thresholds would then be measuring the wrong thing.
+    """
+    kw.setdefault("strategy_max_allocation", 1.0)
+    return BacktestConfig(**kw)
+
+
 def _alternating_candles(n: int = 60) -> pd.DataFrame:
     """Bars that alternate strictly up, strictly down, up, down, ...
 
@@ -44,7 +56,7 @@ def test_lookahead_strategy_loses_money():
     strategy would print money and this assertion would fail.
     """
     candles = _alternating_candles()
-    config = BacktestConfig(starting_capital=10_000.0, min_order_units=0.0)
+    config = cfg(starting_capital=10_000.0, min_order_units=0.0)
     result = backtest(candles, _clairvoyant_signal, config)
 
     assert result.final_equity < config.starting_capital, (
@@ -63,7 +75,7 @@ def test_lookahead_strategy_would_win_with_same_bar_execution():
     prevents it from being harvested.
     """
     candles = _alternating_candles()
-    config = BacktestConfig(starting_capital=10_000.0, min_order_units=0.0)
+    config = cfg(starting_capital=10_000.0, min_order_units=0.0)
 
     # deliberately cheat: hand the engine tomorrow's signal today
     def shifted_forward(c: pd.DataFrame) -> pd.Series:
@@ -76,7 +88,7 @@ def test_lookahead_strategy_would_win_with_same_bar_execution():
 def test_every_fill_is_strictly_after_its_signal_candle():
     candles = _alternating_candles(20)
     result = backtest(
-        candles, _clairvoyant_signal, BacktestConfig(min_order_units=0.0)
+        candles, _clairvoyant_signal, cfg(min_order_units=0.0)
     )
     signal_driven = [f for f in result.fills if not f.forced]
     assert signal_driven, "expected signal-driven fills to inspect"
@@ -95,7 +107,7 @@ def test_fill_price_is_the_open_not_the_close():
     result = backtest(
         candles,
         lambda c: pd.Series([1.0] * len(c)),
-        BacktestConfig(min_order_units=0.0, slippage_bps=0.0),
+        cfg(min_order_units=0.0, slippage_bps=0.0),
     )
     first_buy = next(f for f in result.fills if f.side == "buy")
     assert first_buy.reference_price == 100.0  # the open, not the 104.0 close
@@ -106,7 +118,7 @@ def test_signal_on_final_candle_never_executes():
     candles = make_candles([(100.0, 101.0, 99.0, 100.0, 1.0)] * 5)
     signals = pd.Series([0.0, 0.0, 0.0, 0.0, 1.0])  # only the last candle says buy
     result = backtest(
-        candles, lambda c: signals, BacktestConfig(min_order_units=0.0)
+        candles, lambda c: signals, cfg(min_order_units=0.0)
     )
     assert result.trades == []
     assert result.fills == []

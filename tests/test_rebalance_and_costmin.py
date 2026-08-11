@@ -10,13 +10,25 @@ from trading_bot.data.schema import UnknownPairError, cost_minimum
 
 from .synthetic import flat_candles
 
+
+def cfg(**kw) -> BacktestConfig:
+    """A config with the risk-budget mapping pinned to identity.
+
+    The dead-band is compared in EQUITY space, after ``strategy_max_allocation``
+    is applied. These tests are about the dead-band itself, so the mapping is
+    held at 1.0 and the signal values below mean exactly what they say.
+    """
+    kw.setdefault("strategy_max_allocation", 1.0)
+    return BacktestConfig(**kw)
+
+
 # --- min_rebalance_delta -----------------------------------------------------
 
 
 def test_constant_half_target_on_flat_market_is_exactly_one_entry():
     """The mandated test: no fee-drift chatter, one entry, nothing else."""
     candles = flat_candles(200, price=100.0)
-    config = BacktestConfig(min_order_units=0.0)  # delta at its 0.05 default
+    config = cfg(min_order_units=0.0)  # delta at its 0.05 default
     result = backtest(candles, lambda c: pd.Series([0.5] * len(c)), config)
 
     assert len(result.fills) == 1
@@ -27,7 +39,7 @@ def test_constant_half_target_on_flat_market_is_exactly_one_entry():
 
 def test_target_change_below_delta_is_a_noop():
     candles = flat_candles(50, price=100.0)
-    config = BacktestConfig(min_order_units=0.0)
+    config = cfg(min_order_units=0.0)
     signals = [0.5] * 25 + [0.53] * 25  # 0.03 < 0.05
     result = backtest(candles, lambda c: pd.Series(signals), config)
     assert len(result.fills) == 1  # entry only; the 0.03 shift never trades
@@ -35,7 +47,7 @@ def test_target_change_below_delta_is_a_noop():
 
 def test_target_change_above_delta_trades():
     candles = flat_candles(50, price=100.0)
-    config = BacktestConfig(min_order_units=0.0)
+    config = cfg(min_order_units=0.0)
     signals = [0.5] * 25 + [0.60] * 25  # 0.10 >= 0.05
     result = backtest(candles, lambda c: pd.Series(signals), config)
     assert len(result.fills) == 2
@@ -49,7 +61,7 @@ def test_full_exit_is_exempt_from_the_dead_band():
     trade anyway.
     """
     candles = flat_candles(45, price=100.0)
-    config = BacktestConfig(min_order_units=0.0)
+    config = cfg(min_order_units=0.0)
     signals = [0.5] * 15 + [0.04] * 15 + [0.0] * 15
     result = backtest(candles, lambda c: pd.Series(signals), config)
     assert result.ends_flat
@@ -59,7 +71,7 @@ def test_full_exit_is_exempt_from_the_dead_band():
 def test_entry_smaller_than_dead_band_is_suppressed():
     """Symmetry check for the exemption: a tiny ENTRY is chatter and stays out."""
     candles = flat_candles(30, price=100.0)
-    config = BacktestConfig(min_order_units=0.0)
+    config = cfg(min_order_units=0.0)
     signals = [0.0] * 5 + [0.04] * 25  # 0.04 < 0.05 from flat
     result = backtest(candles, lambda c: pd.Series(signals), config)
     assert result.fills == []
@@ -68,7 +80,7 @@ def test_entry_smaller_than_dead_band_is_suppressed():
 
 def test_delta_zero_restores_every_rebalance():
     candles = flat_candles(50, price=100.0)
-    config = BacktestConfig(min_order_units=0.0, min_rebalance_delta=0.0)
+    config = cfg(min_order_units=0.0, min_rebalance_delta=0.0)
     result = backtest(candles, lambda c: pd.Series([0.5] * len(c)), config)
     assert result.suppressed_rebalances == 0
     assert len(result.fills) > 1  # the chatter is back, by request
@@ -76,7 +88,7 @@ def test_delta_zero_restores_every_rebalance():
 
 def test_delta_must_be_a_sane_fraction():
     with pytest.raises(ValueError, match="min_rebalance_delta"):
-        BacktestConfig(min_rebalance_delta=1.5)
+        cfg(min_rebalance_delta=1.5)
 
 
 # --- costmin -----------------------------------------------------------------
@@ -96,11 +108,7 @@ def test_order_passing_ordermin_but_failing_costmin_is_skipped_and_counted():
     fails costmin — it must be skipped, and counted as a costmin skip.
     """
     candles = flat_candles(20, price=100.0)
-    config = BacktestConfig(
-        starting_capital=10_000.0,
-        min_rebalance_delta=0.0,  # isolate costmin from the dead-band
-        slippage_bps=0.0,
-    )
+    config = cfg(starting_capital=10_000.0, min_rebalance_delta=0.0, slippage_bps=0.0)
     signals = [0.0] * 5 + [0.00008] * 15  # 0.8 EUR of a 10k account
     result = backtest(candles, lambda c: pd.Series(signals), config, pair="XBTEUR")
 
@@ -111,7 +119,7 @@ def test_order_passing_ordermin_but_failing_costmin_is_skipped_and_counted():
 
 def test_order_clearing_both_minimums_fills():
     candles = flat_candles(20, price=100.0)
-    config = BacktestConfig(min_rebalance_delta=0.0, slippage_bps=0.0)
+    config = cfg(min_rebalance_delta=0.0, slippage_bps=0.0)
     signals = [0.0] * 5 + [0.0002] * 15  # 2 EUR: clears 1 EUR costmin, 0.0001 ordermin
     result = backtest(candles, lambda c: pd.Series(signals), config, pair="XBTEUR")
 
@@ -126,7 +134,7 @@ def test_order_clearing_both_minimums_fills():
 
 def test_costmin_override_for_what_if_runs():
     candles = flat_candles(20, price=100.0)
-    config = BacktestConfig(min_rebalance_delta=0.0, slippage_bps=0.0, costmin=50.0)
+    config = cfg(min_rebalance_delta=0.0, slippage_bps=0.0, costmin=50.0)
     signals = [0.0] * 5 + [0.004] * 15  # 40 EUR: above 1, below the 50 override
     result = backtest(candles, lambda c: pd.Series(signals), config, pair="XBTEUR")
     assert result.fills == []
@@ -136,7 +144,7 @@ def test_costmin_override_for_what_if_runs():
 def test_override_mode_without_pair_defaults_costmin_to_zero():
     """Explicit test mode (min_order_units set, no pair): costmin inert."""
     candles = flat_candles(10, price=100.0)
-    config = BacktestConfig(min_order_units=0.0, min_rebalance_delta=0.0)
+    config = cfg(min_order_units=0.0, min_rebalance_delta=0.0)
     signals = [0.0] * 2 + [0.00001] * 8
     result = backtest(candles, lambda c: pd.Series(signals), config)
     assert result.skipped_costmin == 0

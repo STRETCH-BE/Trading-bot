@@ -16,12 +16,23 @@ from trading_bot.data import schema
 
 from .synthetic import flat_candles, from_closes, make_candles
 
+
+def cfg(**kw) -> BacktestConfig:
+    """A config with the risk-budget mapping pinned to identity.
+
+    These tests exercise fill and accounting mechanics, where a target of 1.0
+    must mean 'all of the equity'. The ``strategy_max_allocation`` mapping
+    (0.25 by default) is a separate concern with its own tests; letting it
+    leak in here would silently rescale every expected number.
+    """
+    kw.setdefault("strategy_max_allocation", 1.0)
+    return BacktestConfig(**kw)
+
+
 # These tests exercise raw fill accounting; the rebalance dead-band is a
 # separate feature with its own tests (test_rebalance_and_costmin.py), so it
 # is disabled here to keep every fractional rebalance observable.
-CONFIG = BacktestConfig(
-    starting_capital=10_000.0, min_order_units=0.0, min_rebalance_delta=0.0
-)
+CONFIG = cfg(starting_capital=10_000.0, min_order_units=0.0, min_rebalance_delta=0.0)
 
 
 def _rising_market(n: int = 200) -> pd.DataFrame:
@@ -62,12 +73,9 @@ def test_flat_market_always_long_reports_no_risk_when_costless():
     Sharpe -1.57 / max DD 0.62% here.
     """
     candles = flat_candles(300, price=100.0)
-    config = BacktestConfig(
-        starting_capital=10_000.0,
-        maker_fee_bps=0.0,
-        taker_fee_bps=0.0,
-        slippage_bps=0.0,
-        min_order_units=0.0,
+    config = cfg(
+        starting_capital=10_000.0, maker_fee_bps=0.0, taker_fee_bps=0.0,
+        slippage_bps=0.0, min_order_units=0.0,
     )
     result = backtest(candles, lambda c: pd.Series([1.0] * len(c)), config)
     metrics = compute_metrics(result, config)
@@ -85,7 +93,7 @@ def test_flat_market_drawdown_is_entry_cost_only_not_double():
     so no exit cost may appear in the equity curve.
     """
     candles = flat_candles(300, price=100.0)
-    config = BacktestConfig(starting_capital=10_000.0, min_order_units=0.0)
+    config = cfg(starting_capital=10_000.0, min_order_units=0.0)
     result = backtest(candles, lambda c: pd.Series([1.0] * len(c)), config)
     metrics = compute_metrics(result, config)
 
@@ -236,11 +244,9 @@ def test_daily_round_trips_bleed_exactly_the_expected_cost():
     """
     n = 365
     candles = flat_candles(n)
-    config = BacktestConfig(
-        starting_capital=10_000.0,
-        taker_fee_bps=26.0,
-        slippage_bps=5.0,
-        min_order_units=0.0,
+    config = cfg(
+        starting_capital=10_000.0, taker_fee_bps=26.0,
+        slippage_bps=5.0, min_order_units=0.0,
     )
     # alternate in/out every candle -> a full round trip every 2 candles
     signals = pd.Series([1.0 if i % 2 == 0 else 0.0 for i in range(n)])
@@ -277,10 +283,10 @@ def test_fees_scale_with_the_fee_setting():
     signals = pd.Series([1.0 if i % 2 == 0 else 0.0 for i in range(50)])
 
     cheap = backtest(
-        candles, lambda c: signals, BacktestConfig(taker_fee_bps=10.0, min_order_units=0.0)
+        candles, lambda c: signals, cfg(taker_fee_bps=10.0, min_order_units=0.0)
     )
     dear = backtest(
-        candles, lambda c: signals, BacktestConfig(taker_fee_bps=20.0, min_order_units=0.0)
+        candles, lambda c: signals, cfg(taker_fee_bps=20.0, min_order_units=0.0)
     )
     ratio = dear.total_fees / cheap.total_fees
     assert 1.9 < ratio <= 2.0, f"fee bill scaled by {ratio:.3f}, expected just under 2x"
@@ -290,9 +296,9 @@ def test_fees_scale_with_the_fee_setting():
 def test_maker_mode_is_cheaper_than_taker():
     candles = flat_candles(50)
     signals = pd.Series([1.0 if i % 2 == 0 else 0.0 for i in range(50)])
-    taker = backtest(candles, lambda c: signals, BacktestConfig(min_order_units=0.0))
+    taker = backtest(candles, lambda c: signals, cfg(min_order_units=0.0))
     maker = backtest(
-        candles, lambda c: signals, BacktestConfig(fee_mode="maker", min_order_units=0.0)
+        candles, lambda c: signals, cfg(fee_mode="maker", min_order_units=0.0)
     )
     assert maker.total_fees < taker.total_fees
 
@@ -304,7 +310,7 @@ def test_cash_plus_position_value_is_conserved_across_every_transaction():
     """Equity may change only by market moves and by fees actually recorded."""
     candles = _rising_market(120)
     signals = pd.Series([1.0 if (i // 3) % 2 == 0 else 0.0 for i in range(120)])
-    config = BacktestConfig(starting_capital=10_000.0, min_order_units=0.0)
+    config = cfg(starting_capital=10_000.0, min_order_units=0.0)
     result = backtest(candles, lambda c: signals, config)
 
     assert result.fills, "expected transactions to check"
@@ -377,7 +383,7 @@ def test_wrong_length_signal_is_rejected():
 
 def test_orders_below_exchange_minimum_are_skipped_not_submitted():
     candles = flat_candles(20, price=100_000.0)  # tiny unit sizes at this price
-    config = BacktestConfig(starting_capital=100.0, min_order_units=0.01)
+    config = cfg(starting_capital=100.0, min_order_units=0.01)
     signals = pd.Series([1.0 if i % 2 == 0 else 0.0 for i in range(20)])
     result = backtest(candles, lambda c: signals, config)
 
@@ -388,7 +394,7 @@ def test_orders_below_exchange_minimum_are_skipped_not_submitted():
 
 def test_orders_above_minimum_still_execute():
     candles = flat_candles(20, price=100.0)
-    config = BacktestConfig(starting_capital=10_000.0, min_order_units=0.01)
+    config = cfg(starting_capital=10_000.0, min_order_units=0.01)
     signals = pd.Series([1.0 if i % 2 == 0 else 0.0 for i in range(20)])
     result = backtest(candles, lambda c: signals, config)
     assert result.fills

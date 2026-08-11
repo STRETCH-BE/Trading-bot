@@ -21,7 +21,7 @@ import json
 import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -56,13 +56,25 @@ CONFIG = BacktestConfig(
     slippage_bps=5.0,
     min_rebalance_delta=0.05,
     periods_per_year=365.0,
+    # Stated explicitly rather than defaulted, because it decides what a signal
+    # of 1.0 MEANS. The originally committed 4a results predate the risk-budget
+    # mapping and were produced at 1.0; reproducing them needs --allocation 1.0.
+    strategy_max_allocation=0.25,
 )
 
 WINDOW_CONFIGS = [("main_180_60", 180, 60), ("w_90_30", 90, 30), ("w_360_90", 360, 90)]
 
 
 def _search_job(args):
-    tag, widx, is_df, pair = args
+    tag, widx, is_df, pair, allocation = args
+    # The workers inherit CONFIG through the process pool. If that ever stops
+    # being true (a spawn start method, a refactor), the search would quietly
+    # run at a different allocation than the concatenated OOS curve and the
+    # two halves of the result would not be comparable. Fail instead.
+    assert CONFIG.strategy_max_allocation == allocation, (
+        f"worker allocation drift: worker has {CONFIG.strategy_max_allocation}, "
+        f"parent intended {allocation}"
+    )
     pts = search_window(is_df, COMBOS, CONFIG, pair)
     return tag, widx, [(p.sharpe, p.total_return) for p in pts]
 
@@ -115,7 +127,8 @@ def run_pipeline(pair: str, candles: pd.DataFrame, is_len: int, oos_len: int,
                  tag: str, pool: ProcessPoolExecutor) -> dict:
     windows = make_windows(len(candles), is_len, oos_len, oos_len)
     jobs = [
-        (tag, w.idx, candles.iloc[w.is_lo:w.is_hi].reset_index(drop=True), pair)
+        (tag, w.idx, candles.iloc[w.is_lo:w.is_hi].reset_index(drop=True), pair,
+         CONFIG.strategy_max_allocation)
         for w in windows
     ]
     stats: dict[int, list[tuple[float, float]]] = {}
@@ -186,14 +199,26 @@ def run_pipeline(pair: str, candles: pd.DataFrame, is_len: int, oos_len: int,
 
 
 def main() -> int:
+    global CONFIG
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path("data/parquet"))
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument(
+        "--allocation", type=float, default=CONFIG.strategy_max_allocation,
+        help="strategy_max_allocation: a signal of 1.0 means this fraction of "
+             "equity. Results committed before the risk-budget mapping existed "
+             "were produced at 1.0; pass --allocation 1.0 to reproduce them.",
+    )
     parser.add_argument(
         "--unlock-holdout", action="store_true",
         help="mint a one-shot holdout unlock (NOT used by stage 4a)",
     )
     args = parser.parse_args()
+
+    # Rebound BEFORE the process pool exists, so the workers inherit it.
+    # _search_job asserts they did.
+    CONFIG = replace(CONFIG, strategy_max_allocation=args.allocation)
 
     unlock = HoldoutUnlock() if args.unlock_holdout else None
     if unlock is not None:
@@ -207,7 +232,13 @@ def main() -> int:
     print(f"stage 4a | commit {git_hash} | shuffle seeds {SHUFFLE_SEEDS} | "
           f"grid {len(COMBOS)} combos | capital {CONFIG.starting_capital:,.0f} | "
           f"taker {CONFIG.taker_fee_bps}bps slip {CONFIG.slippage_bps}bps "
-          f"delta {CONFIG.min_rebalance_delta}")
+          f"delta {CONFIG.min_rebalance_delta} | "
+          f"allocation {CONFIG.strategy_max_allocation} "
+          f"(signal 1.0 -> {CONFIG.strategy_max_allocation * 100:.0f}% of equity)")
+    if CONFIG.strategy_max_allocation != 1.0:
+        print("NOTE: the benchmark below is 100% buy-and-hold. Against a "
+              f"{CONFIG.strategy_max_allocation * 100:.0f}%-capped strategy that is "
+              "NOT capital-matched — read excess return accordingly.", file=sys.stderr)
 
     store = ParquetStore(args.data_dir)
     d1 = schema.TIMEFRAMES["1d"]
@@ -260,7 +291,8 @@ def main() -> int:
             )
             results["pairs"][pair] = pair_out
 
-    out_path = Path("results") / f"4a_{stamp}_{git_hash}.json"
+    alloc_tag = f"alloc{CONFIG.strategy_max_allocation:g}".replace(".", "")
+    out_path = Path("results") / f"4a_{stamp}_{git_hash}_{alloc_tag}.json"
     out_path.parent.mkdir(exist_ok=True)
     out_path.write_text(json.dumps(results, indent=1, default=_json_default))
     print(f"\nwrote {out_path}")

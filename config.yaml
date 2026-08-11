@@ -18,6 +18,9 @@ backtest:
   risk_free_rate: 0.0
   # Target-position changes below this are no-ops (fee-drift chatter guard).
   min_rebalance_delta: 0.05
+  # RISK BUDGET: a strategy target of 1.0 means 'fully allocated within my
+  # budget' = this fraction of equity. Matches risk.max_position_pct.
+  strategy_max_allocation: 0.25
   # Candles on/after this date are HOLDOUT — backtest() raises on them.
   holdout_start: "2026-01-01"
   # NOTE: min_order_units / costmin are deliberately NOT set here. Exchange

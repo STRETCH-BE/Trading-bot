@@ -30,6 +30,10 @@ class TargetTranslation:
     """What the translator decided, including the reasons it decided nothing."""
 
     orders: list[Order] = field(default_factory=list)
+    # The strategy target AFTER the risk-budget mapping, i.e. a fraction of
+    # EQUITY. Callers that log a target must log this one, never the raw
+    # strategy value — otherwise the audit trail mixes two different units.
+    equity_target: float = 0.0
     suppressed_by_deadband: bool = False
     skipped_ordermin: bool = False
     skipped_costmin: bool = False
@@ -51,21 +55,40 @@ def orders_for_target(
     fill_model: FillModel,
     *,
     min_rebalance_delta: float = 0.0,
+    max_allocation: float = 1.0,
     timestamp: pd.Timestamp | None = None,
     strategy: str = "backtest",
     signal_timestamp: pd.Timestamp | None = None,
     order_type: str = "market",
 ) -> TargetTranslation:
-    """Translate a target position fraction into zero or one order.
+    """Translate a strategy target into zero or one order.
 
-    ``target`` is the fraction of equity to hold in the asset, in [0, 1].
+    ``target`` is the strategy's target as a fraction of its RISK BUDGET, in
+    [0, 1]. ``max_allocation`` converts that budget into a fraction of equity:
+
+        equity_fraction = target * max_allocation
+
+    So target 1.0 with max_allocation 0.25 means "fully allocated within my
+    budget" = 25% of equity, not 100%.
+
+    THE MAPPING LIVES HERE AND ONLY HERE. Both the backtest engine and the
+    live cycle call this function, so neither can drift from the other — the
+    same rule that keeps FillModel single-sourced.
+
+    Note on the dead-band: ``min_rebalance_delta`` is compared in EQUITY
+    space, after the mapping. With max_allocation 0.25 a 0.05 dead-band is
+    therefore 20% of the strategy's expressible range rather than 5% — it
+    bites proportionally harder. That is deliberate (the dead-band exists to
+    avoid churning small ORDERS, and order size is an equity-space quantity)
+    but it does mean a rescaled run is not a pure 0.25x of an unscaled one.
     """
+    target = target * max_allocation
     equity_at_open = state.equity(price)
     desired_notional = equity_at_open * target
     current_notional = state.units * price
     delta_notional = desired_notional - current_notional
 
-    out = TargetTranslation()
+    out = TargetTranslation(equity_target=target)
     if abs(delta_notional) <= EPS:
         out.reason = "already at target"
         return out

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 
 import pandas as pd
 import pytest
@@ -19,10 +20,9 @@ from .synthetic import from_closes
 
 PRICE = 100.0
 
-# voltrend targets a FULL allocation, which the shipped risk limits forbid
-# (see test_FINDING_default_risk_limits_forbid_the_validated_allocation).
-# These cycle tests use permissive limits so they exercise the loop rather
-# than re-testing that conflict.
+# Most cycle tests use permissive limits so a rejection never masks a loop bug.
+# The interaction between the shipped RiskLimits() and the strategy's target is
+# tested on its own, below, under the real defaults.
 PERMISSIVE = RiskLimits(
     max_position_pct=100.0, max_total_exposure_pct=100.0, max_order_size_pct=100.0
 )
@@ -320,17 +320,13 @@ def test_run_module_is_executable_as_main():
     assert "--once" in out.stdout
 
 
-def test_FINDING_default_risk_limits_forbid_the_validated_allocation(tmp_path):
-    """The shipped risk limits and the validated strategy disagree.
+def test_RESOLVED_full_strategy_target_is_accepted_under_shipped_risk_limits(tmp_path):
+    """The former FINDING: voltrend targets 1.0, the shipped limits cap a
+    position at 25% of equity, so every cycle was rejected.
 
-    voltrend targets up to 1.0 — the whole account in one pair. The shipped
-    limits cap a single position at 25% of equity and any single order at 30%.
-    So the position Stage 4 validated CANNOT be taken under these limits: the
-    bot asks, and is rejected, every cycle.
-
-    Pinned here so the conflict is visible rather than discovered in paper
-    trading. Resolving it is a decision — raise max_position_pct, or scale the
-    strategy's target — not something to paper over in code.
+    Resolved by ``strategy_max_allocation``: a target of 1.0 now means 'fully
+    allocated within my risk budget' = 25% of equity. The risk limits were NOT
+    weakened — this runs against the shipped ``RiskLimits()`` defaults.
     """
     ctx, local, venue, broker, cs = build(tmp_path)
     ctx.gate = RiskGate(RiskLimits(), ctx.fill_model, halt_file=tmp_path / "HALT")
@@ -338,6 +334,52 @@ def test_FINDING_default_risk_limits_forbid_the_validated_allocation(tmp_path):
     result = run_cycle(ctx, now=now_of(cs), reconcile_first=True)
 
     assert result.signal == pytest.approx(1.0), "strategy asked for a full position"
-    assert result.orders_submitted == 0, "risk gate should have refused it"
+    assert result.rejections == []
+    assert result.orders_submitted == 1
+
+    # and it asked for a QUARTER of the account, not all of it
+    decision = local.recent_decisions()[0]
+    assert decision["action_taken"] == "submitted"
+    assert decision["target_position"] == pytest.approx(
+        ctx.config.strategy_max_allocation
+    )
+    submitted = local.all_orders()[0].order
+    notional = submitted.units * float(cs[schema.CLOSE].iloc[-1])
+    assert notional == pytest.approx(10_000.0 * 0.25, rel=0.02)
+
+
+def test_decision_row_logs_both_positions_in_equity_units(tmp_path):
+    """current_position and target_position must be the SAME unit.
+
+    The mapping makes it easy to log the raw signal (1.0) beside an equity
+    fraction (0.25); at 3am that reads as 'it wants to quadruple' when the bot
+    is in fact fully allocated and about to do nothing. The raw signal belongs
+    in the reasoning text, where it is labelled.
+    """
+    ctx, local, venue, broker, cs = build(tmp_path)
+    t0 = now_of(cs)
+    run_cycle(ctx, now=t0, reconcile_first=True)
+    run_cycle(ctx, now=t0 + pd.Timedelta(hours=2))  # now holding: expect 'none'
+
+    row = local.recent_decisions()[0]
+    assert row["action_taken"] == "none", "expected the second cycle to sit still"
+    assert row["target_position"] == pytest.approx(0.25, abs=0.01)
+    assert row["current_position"] == pytest.approx(row["target_position"], abs=0.02), (
+        "the two columns disagree — they are not in the same unit"
+    )
+    assert "signal 1.0000 x budget 0.2500 = 0.2500 of equity" in row["reasoning"]
+
+
+def test_the_gate_still_bites_if_the_allocation_mapping_is_removed(tmp_path):
+    """Teeth check for the test above: the conflict was resolved by the mapping,
+    not by the gate having gone quiet. Put the target back to 1.0-of-equity and
+    the shipped limits must reject it exactly as they did before."""
+    ctx, local, venue, broker, cs = build(tmp_path)
+    ctx.gate = RiskGate(RiskLimits(), ctx.fill_model, halt_file=tmp_path / "HALT")
+    ctx.config = replace(ctx.config, strategy_max_allocation=1.0)
+
+    result = run_cycle(ctx, now=now_of(cs), reconcile_first=True)
+
+    assert result.orders_submitted == 0
     assert result.rejections == ["max_order_size_pct"]
     assert local.recent_decisions()[0]["action_taken"] == "rejected"

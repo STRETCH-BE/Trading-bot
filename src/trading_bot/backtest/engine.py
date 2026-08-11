@@ -191,6 +191,7 @@ def backtest(
             pair if pair is not None else None,
             fill_model,
             min_rebalance_delta=config.min_rebalance_delta,
+            max_allocation=config.strategy_max_allocation,
             timestamp=ts.iloc[i],
             signal_timestamp=ts.iloc[i - 1] if i > 0 else ts.iloc[i],
             strategy=strategy_name,

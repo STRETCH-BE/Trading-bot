@@ -6,6 +6,8 @@ exactly ONE entry — not three round trips.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -26,7 +28,7 @@ from trading_bot.strategies.donchian import (
 
 from .synthetic import from_closes
 
-CONFIG = BacktestConfig(min_order_units=0.0, min_rebalance_delta=0.0)
+CONFIG = BacktestConfig(min_order_units=0.0, min_rebalance_delta=0.0, strategy_max_allocation=1.0)
 
 
 def _three_windows(first_oos: int, oos_len: int) -> list[WindowSpec]:
@@ -153,6 +155,57 @@ def test_schedule_swaps_parameters_at_the_boundary():
     tight_exit = np.argmin(swapped.to_numpy()[swap_at:] == 1.0)
     loose_exit = np.argmin(stayed.to_numpy()[swap_at:] == 1.0)
     assert tight_exit <= loose_exit
+
+
+def test_walk_forward_honours_the_risk_budget_mapping():
+    """Stage 4a must be re-runnable under strategy_max_allocation.
+
+    The walk-forward path reaches the engine through ``run_oos_concatenated``,
+    not through the live cycle, so this checks the mapping is not bypassed on
+    the way to the gate evidence: the same always-long schedule at 0.25 must
+    buy a quarter of the units and never exceed a quarter of equity.
+
+    Run with the SHIPPED dead-band, not this module's zero. At 1.0 a full
+    target is self-stabilising (there is no cash left to drift with), but a
+    0.25 target is fractional, so its exposure drifts as the price moves and a
+    zero dead-band would rebalance it on every single bar. That is correct
+    behaviour (see test_delta_zero_restores_every_rebalance) and not what is
+    under test here.
+    """
+    candles = from_closes([100.0 + 0.1 * i for i in range(400)])
+    windows = _three_windows(first_oos=220, oos_len=60)
+    selections = [(w, p) for w, p in zip(windows, [PARAMS_A, PARAMS_B, PARAMS_C], strict=False)]
+
+    def always_long(cs, spans, trade_start):
+        sig = np.zeros(len(cs))
+        sig[trade_start:] = 1.0
+        return pd.Series(sig, index=cs.index)
+
+    shipped = replace(CONFIG, min_rebalance_delta=0.05)
+    quarter = replace(shipped, strategy_max_allocation=0.25)
+    full = run_oos_concatenated(candles, selections, shipped, None, scheduler=always_long)
+    capped = run_oos_concatenated(candles, selections, quarter, None, scheduler=always_long)
+
+    assert [f.side for f in capped.fills] == ["buy"], "continuity survived the rescale"
+    assert capped.fills[0].units == pytest.approx(full.fills[0].units * 0.25, rel=1e-9)
+
+    # The ENTRY is exactly at budget...
+    entry_exposure = (
+        capped.fills[0].units * capped.fills[0].price / CONFIG.starting_capital
+    )
+    assert entry_exposure == pytest.approx(0.25, rel=0.01)
+
+    # ...but exposure DRIFTS above it between rebalances, because the dead-band
+    # suppresses the trim until the position is min_rebalance_delta out. The
+    # budget is a cap at trade time, not a continuous one. Bounded by
+    # budget + dead-band; asserted so a future change cannot widen it unnoticed.
+    price = candles[schema.CLOSE].iloc[220:400].to_numpy()
+    exposure = capped.open_units * price / capped.equity.to_numpy()
+    assert exposure.max() > 0.25, "expected upward drift on a rising market"
+    assert exposure.max() <= 0.25 + shipped.min_rebalance_delta + 1e-9, (
+        f"held {exposure.max():.4f} of equity — beyond budget 0.25 plus the "
+        f"{shipped.min_rebalance_delta} dead-band"
+    )
 
 
 def test_make_windows_contiguous_oos_coverage():

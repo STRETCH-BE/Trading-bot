@@ -28,6 +28,7 @@ from trading_bot.data import schema
 from trading_bot.data.store import ParquetStore
 from trading_bot.execution import FillModel
 from trading_bot.risk import RiskGate, RiskLimits
+from trading_bot.risk.budget import check_allocation_budget, describe_budget
 from trading_bot.scheduler.cycle import CycleContext, CycleHalted, run_cycle
 from trading_bot.scheduler.reconcile import reconcile
 from trading_bot.strategies.voltrend import VolTrendParams, voltrend
@@ -99,6 +100,9 @@ def main(argv: list[str] | None = None) -> int:
           f"{'  (DRY RUN)' if args.dry_run else ''}")
     print(f"  strategy           : voltrend {params}")
     print(f"  risk limits        : {limits}")
+    print(describe_budget(config, limits))
+    # Refuse to start if a full strategy signal could never be approved.
+    check_allocation_budget(config, limits).raise_if_violated()
     print(f"  halt file          : {args.halt_file.resolve()}")
     print("=" * 68)
 

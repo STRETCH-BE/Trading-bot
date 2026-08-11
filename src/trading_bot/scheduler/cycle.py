@@ -193,11 +193,22 @@ def _run_pair(
     translation = orders_for_target(
         portfolio, signal, price, pair, ctx.fill_model,
         min_rebalance_delta=ctx.config.min_rebalance_delta,
+        max_allocation=ctx.config.strategy_max_allocation,
         timestamp=now, signal_timestamp=latest, strategy=ctx.strategy_name,
     )
+    # Log the MAPPED target, not the raw signal: current_fraction is a fraction
+    # of equity, so a raw 1.0 next to it would read as "quadruple the position"
+    # when the bot is in fact fully allocated. The raw signal is preserved in
+    # the reasoning text so the mapping stays auditable from the row alone.
+    target_frac = translation.equity_target
+    budget = (
+        f"signal {signal:.4f} x budget "
+        f"{ctx.config.strategy_max_allocation:.4f} = {target_frac:.4f} of equity"
+    )
+
     if not translation.orders:
-        _record(ctx, result, pair, current_fraction, signal, "none",
-                translation.reason, now)
+        _record(ctx, result, pair, current_fraction, target_frac, "none",
+                f"{translation.reason} [{budget}]", now)
         return
 
     order = translation.orders[0]
@@ -217,8 +228,8 @@ def _run_pair(
     if decision.rejected:
         result.rejections.append(decision.limit)
         ctx.notify("risk_rejection", f"{decision.limit}: {decision.message}")
-        _record(ctx, result, pair, current_fraction, signal, "rejected",
-                f"risk[{decision.limit}] {decision.message}", now)
+        _record(ctx, result, pair, current_fraction, target_frac, "rejected",
+                f"risk[{decision.limit}] {decision.message} [{budget}]", now)
         if decision.halted:
             result.halted = True
             result.reason = decision.limit
@@ -227,9 +238,9 @@ def _run_pair(
 
     # --- 8. submit
     if ctx.dry_run:
-        _record(ctx, result, pair, current_fraction, signal, "dry_run",
+        _record(ctx, result, pair, current_fraction, target_frac, "dry_run",
                 f"WOULD SUBMIT {order.side} {order.units:.8f} {pair} "
-                f"({order.client_order_id})", now)
+                f"({order.client_order_id}) [{budget}]", now)
         log.info("DRY RUN — would submit %s", order)
         return
 
@@ -238,9 +249,9 @@ def _run_pair(
     ctx.local.insert_order(order, state.status, now) if ctx.local.get_order(
         order.client_order_id
     ) is None else None
-    _record(ctx, result, pair, current_fraction, signal, "submitted",
+    _record(ctx, result, pair, current_fraction, target_frac, "submitted",
             f"{order.side} {order.units:.8f} -> {order.client_order_id} "
-            f"({state.status})", now)
+            f"({state.status}) [{budget}]", now)
     ctx.notify("submit", f"{pair} {order.side} {order.units:.8f} ({state.status})")
 
 
