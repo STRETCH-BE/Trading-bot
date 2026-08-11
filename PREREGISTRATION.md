@@ -475,3 +475,70 @@ result. No cherry-picking a window configuration. The outcome — pass or
 fail — is recorded as a further amendment. The €100 executability finding
 for ETHEUR (unopenable below ~€101 at 0.25) is reported with the results;
 the gate itself runs at the standard 10,000 starting capital as before.
+
+## Amendment 7 — 2026-08-11
+
+**Binding record:** the commit that introduces this amendment. Parent is
+`67754aa` (strategy #3 gate results). This is the terminal amendment; the
+strategy budget is exhausted and no further amendment can authorise a run.
+
+### Strategy #3 outcome (recorded)
+
+Gate **FAILED — every operative criterion, on both pairs.** Run at
+`652beb0`, allocation 0.25, capital-matched benchmark (Amendment 4), on the
+repaired selection layer (Amendment 6 preconditions verified: repairs landed
+and tested at `1f8849a` before the run; zero ineligible selections occurred;
+the finite-score assertion never fired). Full record:
+`results/4c_strategy3_meanrev_20260811T185700Z_652beb0.json`.
+
+Main configuration, concatenated out-of-sample:
+
+- **Criterion 4 (excess vs capital-matched): −4,034 pp (XBTEUR),
+  −5,054 pp (ETHEUR).** The strategy lost 36.2% / 38.3% in absolute terms
+  over a span where its own 25%-capped benchmark returned +3,998% / +5,015%.
+- **Criterion 2 (shuffle): margins −0.832 / −0.846** against a required
+  ≥ +0.4. The strategy EARNED +64% / +78% on the shuffled series and lost on
+  the real ones — dip-buying profits on a random walk by construction, and
+  the real series actively punishes it.
+- **Criterion 3 (degradation): −0.248 / −0.288** (OOS Sharpe negative while
+  selected in-sample Sharpe averaged +1.0 to +1.9).
+- **Criterion 5 (window robustness): 0/3 configurations positive, both
+  pairs.**
+- Criterion 6 (stability): VACUOUS-PASS as pre-declared in Amendment 6;
+  contributes nothing.
+
+### The project's complete answer
+
+Three strategies now bracket the hypothesis space from both sides. The trend
+family (#1, #2) beat its shuffle controls — the momentum information in
+daily BTC/ETH is real — and still lost thousands of points to holding after
+costs. The mean-reversion family (#3) lost to its own shuffle control —
+betting against that same structure loses outright. **Daily BTC/ETH exhibits
+positive autocorrelation that is too weak to trade profitably with and
+costly to trade against. Buy-and-hold wins. No live trading occurs.**
+
+### Slot accounting — final and exhausted
+
+| Strategy | Outcome | Slot |
+|---|---|---|
+| Cross-sectional momentum | abandoned pre-result (Amendment 1) | none consumed |
+| #2 — volatility-targeted trend | FAILED (criteria 1, 4) | 1 consumed |
+| #3 — mean reversion | FAILED (criteria 2, 3, 4, 5) | **2 consumed** |
+
+**2 of 2 consumed. The strategy budget is exhausted. There is no slot 3,
+and rule 4 makes every completed run final.**
+
+### Holdout — permanently sealed
+
+Rule 3 unlocks the holdout exactly once, on the single strategy that passed
+every other gate. No such strategy exists and, with the budget exhausted,
+none can. **The holdout is permanently sealed.** (It also contains zero
+candles; both facts are independently sufficient.)
+
+### Terminal state
+
+The conclusion of Amendment 5 stands, strengthened: reopened once under its
+own recorded conditions, the project reached the same answer by the opposite
+route. FINDINGS.md carries the dated addendum. This preregistration is now
+closed to further strategy work; the append-only record remains the
+authoritative history of what was claimed, when, and what happened.
