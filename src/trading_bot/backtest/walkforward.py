@@ -34,6 +34,11 @@ from trading_bot.strategies.donchian import (
     donchian_breakout,
     donchian_breakout_schedule,
 )
+from trading_bot.strategies.meanrev import (
+    MeanRevParams,
+    MeanRevSpan,
+    meanrev_schedule,
+)
 from trading_bot.strategies.voltrend import (
     VolTrendParams,
     VolTrendSpan,
@@ -131,6 +136,24 @@ def voltrend_grid() -> list[VolTrendParams]:
         for vol in (20, 60)
         for tv in (0.40, 0.60)
     ]
+
+
+def meanrev_grid() -> list[MeanRevParams]:
+    """Strategy #3 grid: exactly 12 combinations (Amendment 6, rule 2 cap)."""
+    return [
+        MeanRevParams(lookback=n, entry_k=k, exit_e=e)
+        for n in (10, 20, 30)
+        for k in (1.0, 1.5)
+        for e in (0.0, 0.5)
+    ]
+
+
+def meanrev_scheduler(
+    candles: pd.DataFrame, spans: list, trade_start: int
+) -> pd.Series:
+    """Scheduler for strategy #3; ``spans`` carry MeanRevParams."""
+    converted = [MeanRevSpan(start=s.start, params=s.params) for s in spans]
+    return meanrev_schedule(candles, converted, trade_start=trade_start)
 
 
 def _donchian_signal(candles: pd.DataFrame, params):

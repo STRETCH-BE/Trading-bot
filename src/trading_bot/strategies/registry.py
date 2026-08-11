@@ -17,6 +17,7 @@ from collections.abc import Callable
 import pandas as pd
 
 from trading_bot.strategies.donchian import DonchianParams, donchian_breakout
+from trading_bot.strategies.meanrev import MeanRevParams, meanrev
 from trading_bot.strategies.voltrend import VolTrendParams, voltrend
 
 # A registry entry is a zero-argument-configured signal function: it takes
@@ -26,6 +27,7 @@ StrategyFn = Callable[[pd.DataFrame], pd.Series]
 STRATEGIES: dict[str, StrategyFn] = {
     "donchian_breakout": lambda candles: donchian_breakout(candles, DonchianParams()),
     "voltrend": lambda candles: voltrend(candles, VolTrendParams()),
+    "meanrev": lambda candles: meanrev(candles, MeanRevParams()),
 }
 
 

@@ -54,3 +54,9 @@ strategies:
     vol_lookback: 20
     target_vol: 0.40
     max_position: 1.0
+  # Strategy #3 (preregistration amendment 6): mean reversion, long-or-flat.
+  # entry_k / exit_e are in STANDARD DEVIATIONS of the same lookback window.
+  meanrev:
+    lookback: 20
+    entry_k: 1.5
+    exit_e: 0.0
