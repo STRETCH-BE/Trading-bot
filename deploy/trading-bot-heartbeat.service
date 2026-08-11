@@ -1,0 +1,26 @@
+[Unit]
+Description=Trading-bot heartbeat check (is the bot actually working?)
+Documentation=file:/opt/trading-bot/RUNBOOK.md
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+
+# Deliberately a SEPARATE unit from trading-bot.service. A heartbeat the bot
+# checked itself would be worthless: a process wedged in a socket read cannot
+# notice that it is wedged, and `systemctl is-active` would still say active.
+ExecStart=/opt/trading-bot/.venv/bin/python /opt/trading-bot/scripts/check_heartbeat.py \
+    --heartbeat-file /var/lib/trading-bot/state/heartbeat.json \
+    --max-age-seconds 93600
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-bot-heartbeat
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/lib/trading-bot

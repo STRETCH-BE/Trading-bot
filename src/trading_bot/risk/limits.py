@@ -21,7 +21,9 @@ class RiskLimits:
     max_position_pct: float = 25.0  # max % of equity in a single position
     max_total_exposure_pct: float = 75.0  # max % of equity deployed at once
     max_concurrent_positions: int = 2
-    daily_loss_limit_pct: float = 5.0  # breach -> flatten, halt, manual restart
+    # Breach -> halt + manual restart. NOT flatten: no code path sells an open
+    # position automatically, and there is deliberately none. See RUNBOOK.md.
+    daily_loss_limit_pct: float = 5.0
     max_drawdown_pct: float = 20.0  # from peak equity; same response
     max_order_size_pct: float = 30.0  # fat-finger / runaway-loop guard
     max_orders_per_hour: int = 10  # circuit breaker

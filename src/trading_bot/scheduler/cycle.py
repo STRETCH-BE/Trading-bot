@@ -100,6 +100,22 @@ def run_cycle(
     result = CycleResult(cycle_id=uuid.uuid4().hex[:12], started_at=now)
     log.info("cycle %s starting at %s (dry_run=%s)", result.cycle_id, now, ctx.dry_run)
 
+    # --- 0. the kill switch, checked BEFORE anything else.
+    # The gate also checks it, but only when there is an order to approve — a
+    # strategy sitting flat would never consult it, so `touch HALT` could leave
+    # the process running indefinitely. Checked here, it stops the next cycle
+    # whatever the strategy wants to do.
+    if ctx.gate.is_halted():
+        result.halted = True
+        result.reason = "halt file present"
+        message = (
+            f"HALT file present at {ctx.gate.halt_file.resolve()} — stopping. "
+            f"Remove it by hand to resume."
+        )
+        log.critical(message)
+        ctx.notify("halt", message)
+        raise CycleHalted(message)
+
     # --- 1. settle first: fills from earlier cycles land before we read state
     settled = _settle(ctx, now)
     result.settled = len(settled)

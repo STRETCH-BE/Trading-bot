@@ -318,8 +318,10 @@ class RiskGate:
                 limit_value=self.limits.daily_loss_limit_pct,
                 message=(
                     f"daily loss {loss:.2f}% breached the "
-                    f"{self.limits.daily_loss_limit_pct}% limit. FLATTEN AND HALT — "
-                    f"manual restart required."
+                    f"{self.limits.daily_loss_limit_pct}% limit. HALTED — no "
+                    f"further orders. ANY OPEN POSITION IS STILL OPEN: nothing "
+                    f"flattens it automatically. Close it by hand if you want "
+                    f"out. Manual restart required."
                 ),
                 halted=True,
             )
@@ -337,8 +339,10 @@ class RiskGate:
                 limit_value=self.limits.max_drawdown_pct,
                 message=(
                     f"drawdown from peak is {dd:.2f}%, breaching the "
-                    f"{self.limits.max_drawdown_pct}% limit. FLATTEN AND HALT — "
-                    f"manual restart required."
+                    f"{self.limits.max_drawdown_pct}% limit. HALTED — no further "
+                    f"orders. ANY OPEN POSITION IS STILL OPEN: nothing flattens "
+                    f"it automatically. Close it by hand if you want out. "
+                    f"Manual restart required."
                 ),
                 halted=True,
             )

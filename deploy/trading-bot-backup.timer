@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up the trading-bot state nightly
+Documentation=file:/opt/trading-bot/RUNBOOK.md
+
+[Timer]
+OnCalendar=*-*-* 03:17:00 UTC
+# Not on the hour: 03:00 is when every other cron on the box fires.
+RandomizedDelaySec=10min
+# Catch up after downtime rather than silently skipping a night.
+Persistent=true
+Unit=trading-bot-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,82 @@
+[Unit]
+Description=Trading-bot (PAPER MODE)
+Documentation=file:/opt/trading-bot/RUNBOOK.md
+After=network-online.target time-sync.target
+Wants=network-online.target
+# Give up restarting after 5 failures in 10 minutes rather than hammering a
+# broken deploy forever. `systemctl reset-failed trading-bot` clears the count.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+
+# Secrets. Root-owned, mode 600, and NOT in the repo, the working directory, or
+# this unit file. systemd is PID 1 and reads this as root BEFORE dropping to
+# User=tradingbot, so the unprivileged bot never needs read access to the file
+# itself — it only ever sees the resulting variables. That is the point of the
+# pattern, and it is why 600 root:root is correct rather than broken.
+#
+# There are no keys to put here yet: Stage 6b (KrakenBroker) is not built and
+# paper mode needs no credentials. The directive is present, and the file must
+# exist (systemd fails the unit otherwise), so that adding keys later is a file
+# edit and not a unit-file change made under pressure.
+EnvironmentFile=/etc/trading-bot/env
+
+# PAPER MODE. LIVE_TRADING is deliberately absent — run.py refuses --live
+# without it, and refuses again because no live broker exists.
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot.run \
+    --paper \
+    --config /opt/trading-bot/config.yaml \
+    --data-dir /var/lib/trading-bot/parquet \
+    --state-dir /var/lib/trading-bot/state \
+    --halt-file /var/lib/trading-bot/HALT \
+    --heartbeat-file /var/lib/trading-bot/state/heartbeat.json \
+    --log-file /var/log/trading-bot/trading-bot.jsonl \
+    --log-level INFO
+
+# SIGTERM is handled: the bot finishes the cycle in flight and starts no new
+# one. Give it room to finish rather than killing it mid-order.
+KillSignal=SIGTERM
+TimeoutStopSec=300
+
+Restart=on-failure
+RestartSec=30
+
+# Exit 2 is "HALTED" — the kill switch fired, or the HALT file is present.
+# That is a decision, not a crash: restarting would either exit 2 again on the
+# startup check or, worse, look like recovery. Treat it as a clean stop so the
+# service stays down until a human removes the file.
+SuccessExitStatus=2
+
+# Exit 3 is an unhandled exception. run.py writes the HALT file before exiting,
+# so a restart would hit the startup check and stop — but on-failure will still
+# make one attempt, which is what you want for a transient fault.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-bot
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/trading-bot /var/log/trading-bot
+
+# MemoryDenyWriteExecute is deliberately NOT set. It is good hardening in
+# general, but it can break native extensions in the scientific-Python stack,
+# and it would break them only under systemd — the deploy script's smoke test
+# runs outside the unit and would pass. A hardening flag whose failure mode is
+# "works when you test it, dies at 03:00" is a net loss.
+
+[Install]
+WantedBy=multi-user.target

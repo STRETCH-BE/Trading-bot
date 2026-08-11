@@ -12,12 +12,14 @@ Flags: --paper (default) --live --dry-run --reconcile-only --once
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import random
 import signal
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +29,7 @@ from trading_bot.broker import PaperBroker, PaperBrokerConfig, StateStore
 from trading_bot.data import schema
 from trading_bot.data.store import ParquetStore
 from trading_bot.execution import FillModel
+from trading_bot.logging_setup import configure as configure_logging
 from trading_bot.risk import RiskGate, RiskLimits
 from trading_bot.risk.budget import check_allocation_budget, describe_budget
 from trading_bot.scheduler.cycle import CycleContext, CycleHalted, run_cycle
@@ -43,6 +46,36 @@ def _handle_sigterm(signum, frame) -> None:
     global _shutdown_requested
     _shutdown_requested = True
     log.warning("SIGTERM received — finishing the current cycle, then stopping")
+
+
+def write_heartbeat(path: Path | None, result, mode: str) -> None:
+    """Rewrite the heartbeat after a completed cycle. Never fatal.
+
+    Written by the bot, READ by a separate systemd timer. A heartbeat the bot
+    also checked would be useless: a wedged process cannot notice it is wedged.
+    Written atomically so the checker never reads a half-written file.
+    """
+    if path is None:
+        return
+    try:
+        payload = {
+            "written_at": datetime.now(UTC).isoformat(),
+            "cycle_id": result.cycle_id,
+            "cycle_started_at": str(result.started_at),
+            "mode": mode,
+            "settled": result.settled,
+            "orders_submitted": result.orders_submitted,
+            "rejections": result.rejections,
+            "halted": result.halted,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=1))
+        os.replace(tmp, path)
+    except Exception:
+        # A heartbeat failure must never take down a trading process. It will
+        # go stale, and the checker will say so — which is the correct alarm.
+        log.exception("failed to write heartbeat to %s", path)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="wait after candle close before acting, so it finalises")
     p.add_argument("--halt-file", type=Path, default=Path("HALT"))
     p.add_argument("--log-level", default="INFO")
+    p.add_argument("--log-file", type=Path, default=None,
+                   help="structured JSON log, rotated at 50MB x 10. Omitted "
+                        "means stderr only (journald captures it).")
+    p.add_argument("--heartbeat-file", type=Path, default=None,
+                   help="rewritten after every cycle; a separate systemd timer "
+                        "reads it to detect a wedged process")
     return p
 
 
@@ -85,10 +124,7 @@ def resolve_mode(args) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging(level=args.log_level, log_file=args.log_file)
     mode = resolve_mode(args)
 
     # FINDING 6: raises if the path is wrong; prints what is actually in use.
@@ -105,6 +141,22 @@ def main(argv: list[str] | None = None) -> int:
     check_allocation_budget(config, limits).raise_if_violated()
     print(f"  halt file          : {args.halt_file.resolve()}")
     print("=" * 68)
+
+    # The kill switch must survive a restart. Without this, systemd restarting
+    # a halted bot would run cycles again, and a flat strategy would never
+    # consult the HALT file at all. --reconcile-only is exempt: read-only
+    # diagnostics are exactly what you want while halted.
+    if args.halt_file.exists() and not args.reconcile_only:
+        log.critical("HALT file present at %s — refusing to start",
+                     args.halt_file.resolve())
+        print(
+            f"\nHALTED. {args.halt_file.resolve()} exists:\n"
+            f"{args.halt_file.read_text().strip()}\n\n"
+            f"Investigate, then remove the file by hand to resume. "
+            f"`--reconcile-only` still works while halted.",
+            file=sys.stderr,
+        )
+        return 2
 
     args.state_dir.mkdir(parents=True, exist_ok=True)
     local = StateStore(args.state_dir / "local.db")
@@ -147,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     first = True
     while True:
         try:
-            run_cycle(ctx, now=pd.Timestamp.now(tz="UTC"), reconcile_first=first)
+            result = run_cycle(ctx, now=pd.Timestamp.now(tz="UTC"), reconcile_first=first)
         except CycleHalted as exc:
             log.critical("HALTED: %s", exc)
             return 2
@@ -156,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             log.exception("unhandled exception in cycle — halting")
             ctx.gate.engage_halt("unhandled exception in cycle")
             return 3
+        write_heartbeat(args.heartbeat_file, result, mode)
         first = False
 
         if args.once or _shutdown_requested:

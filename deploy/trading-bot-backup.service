@@ -1,0 +1,28 @@
+[Unit]
+Description=Trading-bot nightly SQLite backup (online-backup API)
+Documentation=file:/opt/trading-bot/RUNBOOK.md
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+
+# Uses sqlite3 Connection.backup(), NOT cp. The bot runs in WAL mode and never
+# stops, so copying the .db file would miss everything still in the -wal and
+# could capture an inconsistent set of the three files. Each snapshot is
+# verified with PRAGMA integrity_check before it counts as a backup.
+ExecStart=/opt/trading-bot/.venv/bin/python /opt/trading-bot/scripts/backup_state.py \
+    --state-dir /var/lib/trading-bot/state \
+    --backup-dir /var/lib/trading-bot/backups \
+    --retention-days 30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-bot-backup
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trading-bot

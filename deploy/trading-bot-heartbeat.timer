@@ -1,0 +1,14 @@
+[Unit]
+Description=Check the trading-bot heartbeat every hour
+Documentation=file:/opt/trading-bot/RUNBOOK.md
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1h
+# Do not fire all timers at the same instant after a reboot.
+RandomizedDelaySec=5min
+Persistent=true
+Unit=trading-bot-heartbeat.service
+
+[Install]
+WantedBy=timers.target
