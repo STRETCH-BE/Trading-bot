@@ -279,3 +279,47 @@ one-in-four shot at an undeployable result.
 *(ETH, 3,800 candles); liquidity floors 2013-12-03 / 2016-01-27. Holdout*
 *2026-01-01+ sealed and empty. All results under `results/`, all rulings in*
 *`PREREGISTRATION.md`, amendments 1–5.*
+
+---
+
+## ADDENDUM — 2026-08-11, post-conclusion: strategy #3 and the exhausted budget
+
+Amendment 6 reopened the project under §9 condition 3 (selection layer
+repaired and regression-tested; capital-matched benchmark implemented and
+tested — both landed at `1f8849a` before the run). Strategy #3, **mean
+reversion** (buy K-sigma dips, exit on reversion to the mean; spec frozen in
+Amendment 6 before any code), spent the banked slot at commit `652beb0`:
+`results/4c_strategy3_meanrev_20260811T185700Z_652beb0.json`.
+
+**Verdict: FAILED — every operative criterion, both pairs.** The gate ran at
+allocation 0.25 against the capital-matched benchmark, on the repaired
+selection layer (zero ineligible selections; every combo evaluable in every
+window).
+
+| main 180/60 | OOS Sharpe | total return | capital-matched bench | excess | shuffle margin | degradation |
+|---|---:|---:|---:|---:|---:|---:|
+| XBTEUR | −0.315 | **−36.2%** | +3,998% | −4,034 pp | **−0.832** | −0.248 |
+| ETHEUR | −0.307 | **−38.3%** | +5,015% | −5,054 pp | **−0.846** | −0.288 |
+
+0/3 window configurations positive on either pair. In-sample Sharpe of the
+selected combos averaged +1.0 to +1.9 while out-of-sample Sharpe was
+negative everywhere — the overfitting signature at its purest, on a
+12-combination grid with a repaired selection layer, which is the point: the
+harness was not the reason strategies failed.
+
+**The capstone finding is the inverted shuffle control.** Mean reversion
+EARNED +64%/+78% on the shuffled series (OOS Sharpe +0.52/+0.54) and LOST
+−36%/−38% on the real ones. Dip-buying profits on a random walk by
+construction; the real series actively punishes it. Read together with
+strategies #1–#2 — which beat their shuffle controls (the trend information
+is real) and still lost to holding after costs — the three runs give one
+coherent answer from both directions: **daily BTC/ETH exhibits positive
+autocorrelation; betting with it cannot overcome costs plus time out of the
+market, and betting against it loses outright.** Buy-and-hold wins.
+
+Final accounting: strategy budget **exhausted** (slot 1: voltrend, FAILED;
+slot 2: meanrev, FAILED; cross-sectional momentum abandoned pre-result, free).
+The holdout is **permanently sealed** — rule 3 unlocks only on a strategy
+that passed every other gate, and none can ever exist under this
+preregistration. The project's conclusion stands, now with the budget spent
+rather than banked: ruling recorded in Amendment 7.
